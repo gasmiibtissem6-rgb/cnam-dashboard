@@ -61,6 +61,29 @@ pipeline {
                 sh '/opt/homebrew/bin/trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 cnam-dashboard:latest'
             }
         }
+
+
+stage('Deploy Docker') {
+    steps {
+        sh '''
+            set -e
+
+            docker rm -f cnam-dashboard-app 2>/dev/null || true
+
+            docker run -d \
+              --name cnam-dashboard-app \
+              --restart unless-stopped \
+              -p 127.0.0.1:3000:80 \
+              cnam-dashboard:latest
+
+            sleep 3
+
+            curl --fail --silent --show-error \
+              http://localhost:3000/ > /dev/null
+        '''
+    }
+}
+
     }
 
     post {
