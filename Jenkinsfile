@@ -73,8 +73,8 @@ pipeline {
                             fi
 
                             HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
-                                -u "$SONAR_AUTH_TOKEN:" \
-                                "$SONAR_HOST_URL/api/v2/analysis/version")
+    -u "$SONAR_AUTH_TOKEN:" \
+    "http://localhost:9000/api/v2/analysis/version")
 
                             echo "Authentification SonarQube : HTTP $HTTP_CODE"
 
