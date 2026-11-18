@@ -64,4 +64,12 @@ pipeline {
             echo 'CNAM Dashboard : pipeline CI + Docker échouée.'
         }
     }
+
+
+stage('Security Scan - Trivy') {
+    steps {
+        sh 'trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 cnam-dashboard:latest'
+    }
+}
+
 }
