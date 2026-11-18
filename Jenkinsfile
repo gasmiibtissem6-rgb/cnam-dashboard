@@ -55,11 +55,26 @@ stage('SonarQube Analysis') {
     steps {
         script {
             def scannerHome = tool 'SonarScanner'
+
             withSonarQubeEnv('SonarQube-CNAM') {
-                sh """
-                    "${scannerHome}/bin/sonar-scanner" \
-                    -Dsonar.token="\$SONAR_AUTH_TOKEN"
-                """
+                sh '''
+                    set +x
+
+                    if [ -n "$SONAR_AUTH_TOKEN" ]; then
+                        echo "SONAR_AUTH_TOKEN : PRESENT"
+                    else
+                        echo "SONAR_AUTH_TOKEN : ABSENT"
+                        exit 1
+                    fi
+
+                    if [ -n "$SONAR_TOKEN" ]; then
+                        echo "SONAR_TOKEN : PRESENT"
+                    else
+                        echo "SONAR_TOKEN : ABSENT"
+                    fi
+                '''
+
+                sh "${scannerHome}/bin/sonar-scanner"
             }
         }
     }
