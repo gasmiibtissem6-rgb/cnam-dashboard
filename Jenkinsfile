@@ -144,18 +144,26 @@ pipeline {
         }
 
         stage('Deploy Docker') {
-            steps {
-                sh '''
-                    docker rm -f cnam-dashboard-app 2>/dev/null || true
-
-                    docker run -d \
-                        --name cnam-dashboard-app \
-                        -p 3000:80 \
-                        --restart unless-stopped \
-                        cnam-dashboard:latest
-                '''
-            }
+    when {
+        expression {
+            env.GIT_BRANCH == 'origin/main' ||
+            env.GIT_BRANCH == 'main' ||
+            env.BRANCH_NAME == 'main'
         }
+    }
+
+    steps {
+        sh '''
+            docker rm -f cnam-dashboard-app 2>/dev/null || true
+
+            docker run -d \
+                --name cnam-dashboard-app \
+                -p 3000:80 \
+                --restart unless-stopped \
+                cnam-dashboard:latest
+        '''
+    }
+}
     }
 
     post {
