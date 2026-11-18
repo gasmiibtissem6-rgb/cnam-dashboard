@@ -109,39 +109,59 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
+        
+stage('Docker Build') {
     steps {
         withCredentials([
             string(credentialsId: 'cnam-supabase-url', variable: 'VITE_SUPABASE_URL'),
             string(credentialsId: 'cnam-supabase-publishable-key', variable: 'VITE_SUPABASE_PUBLISHABLE_KEY')
         ]) {
-            sh '''
-                set +x
+            script {
+                def imageTag = (env.GIT_BRANCH == 'origin/main' ||
+                                env.GIT_BRANCH == 'main' ||
+                                env.BRANCH_NAME == 'main') ? 'main' : 'dev'
 
-                if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
-                    echo "ERREUR : variables Supabase manquantes"
-                    exit 1
-                fi
+                withEnv(["DOCKER_IMAGE_TAG=${imageTag}"]) {
+                    sh '''
+                        set +x
 
-                docker build \
-                    --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
-                    --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
-                    -t cnam-dashboard:latest .
-            '''
+                        if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+                            echo "ERREUR : variables Supabase manquantes"
+                            exit 1
+                        fi
+
+                        docker build \
+                            --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+                            --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
+                            -t "cnam-dashboard:$DOCKER_IMAGE_TAG" .
+                    '''
+                }
+            }
         }
     }
 }
 
-        stage('Security Scan - Trivy') {
-            steps {
+
+        
+stage('Security Scan - Trivy') {
+    steps {
+        script {
+            def imageTag = (env.GIT_BRANCH == 'origin/main' ||
+                            env.GIT_BRANCH == 'main' ||
+                            env.BRANCH_NAME == 'main') ? 'main' : 'dev'
+
+            withEnv(["DOCKER_IMAGE_TAG=${imageTag}"]) {
                 sh '''
                     /opt/homebrew/bin/trivy image \
                         --severity HIGH,CRITICAL \
                         --exit-code 1 \
-                        cnam-dashboard:latest
+                        "cnam-dashboard:$DOCKER_IMAGE_TAG"
                 '''
             }
         }
+    }
+}
+
 
         stage('Deploy Docker') {
     when {
@@ -160,7 +180,7 @@ pipeline {
                 --name cnam-dashboard-app \
                 -p 3000:80 \
                 --restart unless-stopped \
-                cnam-dashboard:latest
+                cnam-dashboard:main
         '''
     }
 }
