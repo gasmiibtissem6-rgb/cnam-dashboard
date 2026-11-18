@@ -67,8 +67,18 @@ export function UserSubmitRequestDialog({ open, onOpenChange, memberId, onSucces
       onOpenChange(false);
       setServiceType(""); setAmount(""); setDescription(""); setProviderId("");
       onSuccess();
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    } catch (err: unknown) {
+  console.error("Reimbursement submission error:", err);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      err instanceof Error
+        ? err.message
+        : "Impossible de soumettre la demande de remboursement.",
+  });
+
     } finally {
       setIsSubmitting(false);
     }

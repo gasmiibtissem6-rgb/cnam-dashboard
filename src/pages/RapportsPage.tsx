@@ -1,9 +1,21 @@
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -18,12 +30,11 @@ import {
   Users,
   Receipt,
   Building2,
-  TrendingUp,
-  TrendingDown,
   Loader2,
   FileSpreadsheet,
   Clock,
   Calendar,
+  TrendingUp,
 } from "lucide-react";
 import {
   BarChart,
@@ -33,8 +44,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -42,7 +51,7 @@ import {
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { fr } from "date-fns/locale";
 
 interface ReportStats {
@@ -53,119 +62,367 @@ interface ReportStats {
   pendingReimbursements: number;
   approvedReimbursements: number;
   rejectedReimbursements: number;
+  processingReimbursements: number;
   totalAmount: number;
   approvedAmount: number;
+  pendingAmount: number;
+  approvalRate: number | null;
 }
 
-const COLORS = ["hsl(var(--primary))", "hsl(var(--accent))", "hsl(var(--success))", "hsl(var(--warning))", "hsl(var(--destructive))"];
+interface MonthlyData {
+  month: string;
+  count: number;
+  amount: number;
+}
+
+interface StatusData {
+  name: string;
+  value: number;
+  color: string;
+}
+
+interface DistributionData {
+  name: string;
+  value: number;
+}
+
+type DateRange = "3months" | "6months" | "12months";
+
+const COLORS = [
+  "hsl(var(--primary))",
+  "hsl(var(--accent))",
+  "hsl(var(--success))",
+  "hsl(var(--warning))",
+  "hsl(var(--destructive))",
+];
+
+const EMPTY_STATS: ReportStats = {
+  totalMembers: 0,
+  totalProviders: 0,
+  totalReimbursements: 0,
+  totalDocuments: 0,
+  pendingReimbursements: 0,
+  approvedReimbursements: 0,
+  rejectedReimbursements: 0,
+  processingReimbursements: 0,
+  totalAmount: 0,
+  approvedAmount: 0,
+  pendingAmount: 0,
+  approvalRate: null,
+};
+
+function formatNumber(value: number): string {
+  return value.toLocaleString("fr-FR");
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "TND",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function csvCell(value: string | number): string {
+  const text = String(value);
+  const safeText = /^[\s]*[=+\-@\t\r]/.test(text)
+    ? `'${text}`
+    : text;
+
+  return `"${safeText.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(
+  rows: Array<Array<string | number>>,
+  filename: string
+): void {
+  const content = rows
+    .map((row) => row.map(csvCell).join(";"))
+    .join("\r\n");
+
+  const blob = new Blob(["\uFEFF", content], {
+    type: "text/csv;charset=utf-8",
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export default function RapportsPage() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<ReportStats | null>(null);
-  const [reimbursementsByMonth, setReimbursementsByMonth] = useState<any[]>([]);
-  const [reimbursementsByStatus, setReimbursementsByStatus] = useState<any[]>([]);
-  const [documentsByType, setDocumentsByType] = useState<any[]>([]);
-  const [providersByType, setProvidersByType] = useState<any[]>([]);
-  const [dateRange, setDateRange] = useState("6months");
+  const [stats, setStats] = useState<ReportStats>(EMPTY_STATS);
+
+  const [reimbursementsByMonth, setReimbursementsByMonth] =
+    useState<MonthlyData[]>([]);
+
+  const [reimbursementsByStatus, setReimbursementsByStatus] =
+    useState<StatusData[]>([]);
+
+  const [documentsByType, setDocumentsByType] =
+    useState<DistributionData[]>([]);
+
+  const [providersByType, setProvidersByType] =
+    useState<DistributionData[]>([]);
+
+  const [dateRange, setDateRange] =
+    useState<DateRange>("6months");
+
   const [isExporting, setIsExporting] = useState(false);
+  const [dataError, setDataError] = useState(false);
+
   const { toast } = useToast();
 
-  const fetchReportData = async () => {
+  const monthsToShow = useMemo(() => {
+    switch (dateRange) {
+      case "3months":
+        return 3;
+      case "12months":
+        return 12;
+      default:
+        return 6;
+    }
+  }, [dateRange]);
+
+  const fetchReportData = useCallback(async () => {
+    setLoading(true);
+    setDataError(false);
+
     try {
-      setLoading(true);
-
-      // Fetch counts
       const [
-        { count: membersCount },
-        { count: providersCount },
-        { count: reimbursementsCount },
-        { count: documentsCount },
-        { data: reimbursements },
-        { data: documents },
-        { data: providers },
+        membersResult,
+        providersCountResult,
+        reimbursementsCountResult,
+        documentsCountResult,
+        reimbursementsResult,
+        documentsResult,
+        providersResult,
       ] = await Promise.all([
-        supabase.from("insured_members").select("*", { count: "exact", head: true }),
-        supabase.from("health_providers").select("*", { count: "exact", head: true }),
-        supabase.from("reimbursements").select("*", { count: "exact", head: true }),
-        supabase.from("documents").select("*", { count: "exact", head: true }),
-        supabase.from("reimbursements").select("status, amount_requested, amount_approved, created_at"),
-        supabase.from("documents").select("document_type, status"),
-        supabase.from("health_providers").select("type"),
+        supabase
+          .from("insured_members")
+          .select("id", { count: "exact", head: true }),
+
+        supabase
+          .from("health_providers")
+          .select("id", { count: "exact", head: true }),
+
+        supabase
+          .from("reimbursements")
+          .select("id", { count: "exact", head: true }),
+
+        supabase
+          .from("documents")
+          .select("id", { count: "exact", head: true }),
+
+        supabase
+          .from("reimbursements")
+          .select(
+            "status, amount_requested, amount_approved, created_at"
+          ),
+
+        supabase
+          .from("documents")
+          .select("document_type"),
+
+        supabase
+          .from("health_providers")
+          .select("type"),
       ]);
 
-      // Calculate stats with enhanced numbers
-      const pendingReimbursements = (reimbursements?.filter((r) => r.status === "pending").length || 0) + 2847;
-      const approvedReimbursements = (reimbursements?.filter((r) => r.status === "approved").length || 0) + 89456;
-      const rejectedReimbursements = (reimbursements?.filter((r) => r.status === "rejected").length || 0) + 4521;
-      const totalAmount = (reimbursements?.reduce((sum, r) => sum + Number(r.amount_requested), 0) || 0) + 48750000;
-      const approvedAmount = (reimbursements?.reduce((sum, r) => sum + Number(r.amount_approved || 0), 0) || 0) + 42180000;
+      const errors = [
+        membersResult.error,
+        providersCountResult.error,
+        reimbursementsCountResult.error,
+        documentsCountResult.error,
+        reimbursementsResult.error,
+        documentsResult.error,
+        providersResult.error,
+      ].filter((error) => error !== null);
 
-      setStats({
-        totalMembers: (membersCount || 0) + 81500,
-        totalProviders: (providersCount || 0) + 2847,
-        totalReimbursements: (reimbursementsCount || 0) + 156847,
-        totalDocuments: (documentsCount || 0) + 234567,
-        pendingReimbursements,
-        approvedReimbursements,
-        rejectedReimbursements,
-        totalAmount,
-        approvedAmount,
-      });
-
-      // Process reimbursements by status for pie chart
-      setReimbursementsByStatus([
-        { name: "En attente", value: pendingReimbursements, color: "hsl(var(--warning))" },
-        { name: "Approuvés", value: approvedReimbursements, color: "hsl(var(--success))" },
-        { name: "Rejetés", value: rejectedReimbursements, color: "hsl(var(--destructive))" },
-        { name: "En cours", value: reimbursements?.filter((r) => r.status === "processing").length || 0, color: "hsl(var(--info))" },
-      ]);
-
-      // Process reimbursements by month
-      const monthsToShow = dateRange === "12months" ? 12 : dateRange === "3months" ? 3 : 6;
-      const monthlyData: { [key: string]: { count: number; amount: number } } = {};
-
-      for (let i = 0; i < monthsToShow; i++) {
-        const monthDate = subMonths(new Date(), i);
-        const monthKey = format(monthDate, "yyyy-MM");
-        monthlyData[monthKey] = { count: 0, amount: 0 };
+      if (errors.length > 0) {
+        throw errors[0];
       }
 
-      reimbursements?.forEach((r) => {
-        const monthKey = format(new Date(r.created_at), "yyyy-MM");
-        if (monthlyData[monthKey]) {
-          monthlyData[monthKey].count++;
-          monthlyData[monthKey].amount += Number(r.amount_requested);
+      const reimbursements = reimbursementsResult.data ?? [];
+      const documents = documentsResult.data ?? [];
+      const providers = providersResult.data ?? [];
+
+      const pending = reimbursements.filter(
+        (item) => item.status === "pending"
+      );
+
+      const approved = reimbursements.filter(
+        (item) => item.status === "approved"
+      );
+
+      const rejected = reimbursements.filter(
+        (item) => item.status === "rejected"
+      );
+
+      const processing = reimbursements.filter(
+        (item) => item.status === "processing"
+      );
+
+      const totalAmount = reimbursements.reduce(
+        (sum, item) => sum + Number(item.amount_requested ?? 0),
+        0
+      );
+
+      const approvedAmount = reimbursements.reduce(
+        (sum, item) => sum + Number(item.amount_approved ?? 0),
+        0
+      );
+
+      const pendingAmount = pending.reduce(
+        (sum, item) => sum + Number(item.amount_requested ?? 0),
+        0
+      );
+
+      const decidedCount = approved.length + rejected.length;
+
+      const approvalRate =
+        decidedCount > 0
+          ? (approved.length / decidedCount) * 100
+          : null;
+
+      setStats({
+        totalMembers: membersResult.count ?? 0,
+        totalProviders: providersCountResult.count ?? 0,
+        totalReimbursements:
+          reimbursementsCountResult.count ?? 0,
+        totalDocuments: documentsCountResult.count ?? 0,
+        pendingReimbursements: pending.length,
+        approvedReimbursements: approved.length,
+        rejectedReimbursements: rejected.length,
+        processingReimbursements: processing.length,
+        totalAmount,
+        approvedAmount,
+        pendingAmount,
+        approvalRate,
+      });
+
+      setReimbursementsByStatus([
+        {
+          name: "En attente",
+          value: pending.length,
+          color: "hsl(var(--warning))",
+        },
+        {
+          name: "Approuvés",
+          value: approved.length,
+          color: "hsl(var(--success))",
+        },
+        {
+          name: "Rejetés",
+          value: rejected.length,
+          color: "hsl(var(--destructive))",
+        },
+        {
+          name: "En cours",
+          value: processing.length,
+          color: "hsl(var(--info))",
+        },
+      ]);
+
+      const monthlyMap: Record<
+        string,
+        { count: number; amount: number }
+      > = {};
+
+      for (let i = monthsToShow - 1; i >= 0; i--) {
+        const date = subMonths(new Date(), i);
+        const key = format(date, "yyyy-MM");
+
+        monthlyMap[key] = {
+          count: 0,
+          amount: 0,
+        };
+      }
+
+      reimbursements.forEach((item) => {
+        const date = new Date(item.created_at);
+
+        if (Number.isNaN(date.getTime())) {
+          return;
+        }
+
+        const key = format(date, "yyyy-MM");
+        const month = monthlyMap[key];
+
+        if (month) {
+          month.count += 1;
+          month.amount += Number(item.amount_requested ?? 0);
         }
       });
 
-      const monthlyChartData = Object.entries(monthlyData)
-        .map(([month, data]) => ({
-          month: format(new Date(month + "-01"), "MMM yyyy", { locale: fr }),
-          count: data.count,
-          amount: data.amount / 1000, // Convert to thousands
-        }))
-        .reverse();
+      const monthlyData: MonthlyData[] = Object.entries(
+        monthlyMap
+      ).map(([month, values]) => ({
+        month: format(new Date(`${month}-01T12:00:00`), "MMM yyyy", {
+          locale: fr,
+        }),
+        count: values.count,
+        amount: values.amount / 1000,
+      }));
 
-      setReimbursementsByMonth(monthlyChartData);
+      setReimbursementsByMonth(monthlyData);
 
-      // Process documents by type
-      const docTypeCount: { [key: string]: number } = {};
-      documents?.forEach((d) => {
-        docTypeCount[d.document_type] = (docTypeCount[d.document_type] || 0) + 1;
+      const documentCounts: Record<string, number> = {};
+
+      documents.forEach((item) => {
+        const type = item.document_type || "Non renseigné";
+
+        documentCounts[type] =
+          (documentCounts[type] ?? 0) + 1;
       });
+
       setDocumentsByType(
-        Object.entries(docTypeCount).map(([type, count]) => ({ name: type, value: count }))
+        Object.entries(documentCounts).map(([name, value]) => ({
+          name,
+          value,
+        }))
       );
 
-      // Process providers by type
-      const providerTypeCount: { [key: string]: number } = {};
-      providers?.forEach((p) => {
-        providerTypeCount[p.type] = (providerTypeCount[p.type] || 0) + 1;
+      const providerCounts: Record<string, number> = {};
+
+      providers.forEach((item) => {
+        const type = item.type || "Non renseigné";
+
+        providerCounts[type] =
+          (providerCounts[type] ?? 0) + 1;
       });
+
+      const providerLabels: Record<string, string> = {
+        hospital: "Hôpitaux",
+        doctor: "Médecins",
+        pharmacy: "Pharmacies",
+        laboratory: "Laboratoires",
+      };
+
       setProvidersByType(
-        Object.entries(providerTypeCount).map(([type, count]) => ({ name: type, value: count }))
+        Object.entries(providerCounts).map(([type, value]) => ({
+          name: providerLabels[type] ?? type,
+          value,
+        }))
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
+      console.error("Erreur rapport CNAM :", error);
+
+      setDataError(true);
+      setStats(EMPTY_STATS);
+      setReimbursementsByMonth([]);
+      setReimbursementsByStatus([]);
+      setDocumentsByType([]);
+      setProvidersByType([]);
+
       toast({
         variant: "destructive",
         title: "Erreur",
@@ -174,70 +431,129 @@ export default function RapportsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [monthsToShow, toast]);
 
   useEffect(() => {
-    fetchReportData();
-  }, [dateRange]);
+    void fetchReportData();
+  }, [fetchReportData]);
 
-  const handleExport = async (exportFormat: "csv" | "pdf") => {
+  const handleExportCsv = () => {
     setIsExporting(true);
+
     try {
-      // Simulate export delay
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const rows: Array<Array<string | number>> = [
+        [
+          "Rapport CNAM",
+          new Date().toLocaleDateString("fr-FR"),
+        ],
+        [],
+        ["Statistiques générales"],
+        ["Métrique", "Valeur"],
+        ["Total assurés", stats.totalMembers],
+        ["Total prestataires", stats.totalProviders],
+        ["Total remboursements", stats.totalReimbursements],
+        ["Total documents", stats.totalDocuments],
+        ["Remboursements en attente", stats.pendingReimbursements],
+        ["Remboursements approuvés", stats.approvedReimbursements],
+        ["Remboursements rejetés", stats.rejectedReimbursements],
+        [
+          "Taux d'approbation (%)",
+          stats.approvalRate?.toFixed(2) ?? "N/A",
+        ],
+        ["Montant total demandé (TND)", stats.totalAmount],
+        ["Montant total approuvé (TND)", stats.approvedAmount],
+        ["Montant en attente (TND)", stats.pendingAmount],
+        [],
+        ["Évolution mensuelle"],
+        ["Mois", "Nombre", "Montant (milliers TND)"],
+        ...reimbursementsByMonth.map((item) => [
+          item.month,
+          item.count,
+          item.amount,
+        ]),
+        [],
+        ["Répartition des prestataires"],
+        ["Type", "Nombre"],
+        ...providersByType.map((item) => [
+          item.name,
+          item.value,
+        ]),
+        [],
+        ["Répartition des documents"],
+        ["Type", "Nombre"],
+        ...documentsByType.map((item) => [
+          item.name,
+          item.value,
+        ]),
+      ];
 
-      if (exportFormat === "csv") {
-        // Generate CSV content
-        const csvContent = [
-          ["Rapport CNAM - " + new Date().toLocaleDateString("fr-FR")],
-          [],
-          ["Statistiques générales"],
-          ["Métrique", "Valeur"],
-          ["Total assurés", stats?.totalMembers],
-          ["Total prestataires", stats?.totalProviders],
-          ["Total remboursements", stats?.totalReimbursements],
-          ["Total documents", stats?.totalDocuments],
-          ["Montant total demandé", stats?.totalAmount?.toLocaleString("fr-FR") + " TND"],
-          ["Montant total approuvé", stats?.approvedAmount?.toLocaleString("fr-FR") + " TND"],
-        ]
-          .map((row) => row.join(","))
-          .join("\n");
+      downloadCsv(
+        rows,
+        `rapport-cnam-${format(new Date(), "yyyy-MM-dd")}.csv`
+      );
 
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `rapport-cnam-${format(new Date(), "yyyy-MM-dd")}.csv`;
-        link.click();
+      toast({
+        title: "Export réussi",
+        description: "Le fichier CSV a été généré.",
+      });
+    } catch (error: unknown) {
+      console.error("Erreur export CSV :", error);
 
-        toast({
-          title: "Export réussi",
-          description: "Le fichier CSV a été téléchargé.",
-        });
-      } else {
-        // For PDF, we'd need a library like jspdf
-        toast({
-          title: "Export PDF",
-          description: "L'export PDF sera disponible prochainement.",
-        });
-      }
-    } catch (error) {
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: "L'export a échoué.",
+        description: "Impossible d'exporter le rapport.",
       });
     } finally {
       setIsExporting(false);
     }
   };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "TND",
-      minimumFractionDigits: 0,
-    }).format(value);
+  const handleExportPdf = () => {
+    window.print();
   };
+
+  const summaryCards = [
+    {
+      label: "Assurés",
+      value: formatNumber(stats.totalMembers),
+      icon: Users,
+      color: "text-primary",
+    },
+    {
+      label: "Prestataires",
+      value: formatNumber(stats.totalProviders),
+      icon: Building2,
+      color: "text-accent",
+    },
+    {
+      label: "Remboursements",
+      value: formatNumber(stats.totalReimbursements),
+      icon: Receipt,
+      color: "text-success",
+    },
+    {
+      label: "Documents",
+      value: formatNumber(stats.totalDocuments),
+      icon: FileText,
+      color: "text-warning",
+    },
+    {
+      label: "Taux d'approbation",
+      value:
+        stats.approvalRate === null
+          ? "—"
+          : `${stats.approvalRate.toFixed(1)}%`,
+      icon: BarChart3,
+      color: "text-info",
+    },
+    {
+      label: "Remboursements en cours",
+      value: formatNumber(stats.processingReimbursements),
+      icon: Clock,
+      color: "text-primary",
+    },
+  ];
 
   if (loading) {
     return (
@@ -253,217 +569,234 @@ export default function RapportsPage() {
     <DashboardLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between print:hidden">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Rapports & Statistiques</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Rapports & Statistiques
+            </h1>
             <p className="text-muted-foreground">
               Analysez les données et exportez des rapports détaillés.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Select value={dateRange} onValueChange={setDateRange}>
-              <SelectTrigger className="w-40">
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={dateRange}
+              onValueChange={(value) =>
+                setDateRange(value as DateRange)
+              }
+            >
+              <SelectTrigger className="w-44">
                 <Calendar className="h-4 w-4 mr-2" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="3months">3 derniers mois</SelectItem>
-                <SelectItem value="6months">6 derniers mois</SelectItem>
-                <SelectItem value="12months">12 derniers mois</SelectItem>
+                <SelectItem value="3months">
+                  3 derniers mois
+                </SelectItem>
+                <SelectItem value="6months">
+                  6 derniers mois
+                </SelectItem>
+                <SelectItem value="12months">
+                  12 derniers mois
+                </SelectItem>
               </SelectContent>
             </Select>
-            <Button variant="outline" onClick={() => handleExport("csv")} disabled={isExporting}>
-              {isExporting ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="h-4 w-4 mr-2" />
-              )}
+
+            <Button
+              variant="outline"
+              disabled={isExporting || dataError}
+              onClick={handleExportCsv}
+            >
+              <FileSpreadsheet className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
-            <Button onClick={() => handleExport("pdf")} disabled={isExporting}>
-              {isExporting ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
-              )}
-              Export PDF
+
+            <Button
+              disabled={dataError}
+              onClick={handleExportPdf}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Imprimer / PDF
             </Button>
           </div>
         </div>
 
+        <div className="hidden print:block">
+          <h1 className="text-2xl font-bold">
+            Rapport CNAM
+          </h1>
+          <p>
+            Date : {new Date().toLocaleDateString("fr-FR")}
+          </p>
+        </div>
+
+        {dataError && (
+          <Card className="border-destructive">
+            <CardContent className="pt-6">
+              <p className="text-destructive">
+                Les données n'ont pas pu être chargées.
+              </p>
+              <Button
+                variant="outline"
+                className="mt-3"
+                onClick={() => void fetchReportData()}
+              >
+                Réessayer
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Summary Stats */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                  <Users className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Assurés</p>
-                  <p className="text-2xl font-bold">{(stats?.totalMembers || 0) >= 1000 ? `${((stats?.totalMembers || 0) / 1000).toFixed(1)}K` : stats?.totalMembers.toLocaleString()}</p>
-                  <p className="text-xs text-success">+12.5% ce trimestre</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-accent/10 flex items-center justify-center">
-                  <Building2 className="h-6 w-6 text-accent" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Prestataires</p>
-                  <p className="text-2xl font-bold">{(stats?.totalProviders || 0) >= 1000 ? `${((stats?.totalProviders || 0) / 1000).toFixed(1)}K` : stats?.totalProviders.toLocaleString()}</p>
-                  <p className="text-xs text-success">+8.3% ce trimestre</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-success/10 flex items-center justify-center">
-                  <Receipt className="h-6 w-6 text-success" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Remboursements</p>
-                  <p className="text-2xl font-bold">{(stats?.totalReimbursements || 0) >= 1000 ? `${((stats?.totalReimbursements || 0) / 1000).toFixed(1)}K` : stats?.totalReimbursements.toLocaleString()}</p>
-                  <p className="text-xs text-success">+15.7% ce trimestre</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-warning/10 flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-warning" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Documents</p>
-                  <p className="text-2xl font-bold">{(stats?.totalDocuments || 0) >= 1000 ? `${((stats?.totalDocuments || 0) / 1000).toFixed(1)}K` : stats?.totalDocuments.toLocaleString()}</p>
-                  <p className="text-xs text-success">+9.4% ce trimestre</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-info/10 flex items-center justify-center">
-                  <BarChart3 className="h-6 w-6 text-info" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Taux approbation</p>
-                  <p className="text-2xl font-bold">86.5%</p>
-                  <p className="text-xs text-success">+2.1% vs objectif</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="stat-card">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-destructive/10 flex items-center justify-center">
-                  <TrendingUp className="h-6 w-6 text-destructive" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Croissance YoY</p>
-                  <p className="text-2xl font-bold">+23.8%</p>
-                  <p className="text-xs text-success">vs année précédente</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {summaryCards.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <Card key={item.label} className="stat-card">
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="h-12 w-12 rounded-xl bg-muted flex items-center justify-center">
+                      <Icon
+                        className={`h-6 w-6 ${item.color}`}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">
+                        {item.label}
+                      </p>
+                      <p className="text-2xl font-bold">
+                        {item.value}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {/* Financial Summary */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card className="stat-card-primary">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm opacity-80">Montant total demandé</p>
-                  <p className="text-3xl font-bold">{formatCurrency(stats?.totalAmount || 0)}</p>
-                  <p className="text-xs opacity-70 mt-1">+18.2% vs période précédente</p>
-                </div>
-                <TrendingUp className="h-8 w-8 opacity-50" />
-              </div>
+              <p className="text-sm opacity-80">
+                Montant total demandé
+              </p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(stats.totalAmount)}
+              </p>
+              <TrendingUp className="h-6 w-6 opacity-50 mt-2" />
             </CardContent>
           </Card>
+
           <Card className="stat-card-success">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm opacity-80">Montant total approuvé</p>
-                  <p className="text-3xl font-bold">{formatCurrency(stats?.approvedAmount || 0)}</p>
-                  <p className="text-xs opacity-70 mt-1">86.5% du montant demandé</p>
-                </div>
-                <TrendingUp className="h-8 w-8 opacity-50" />
-              </div>
+              <p className="text-sm opacity-80">
+                Montant total approuvé
+              </p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(stats.approvedAmount)}
+              </p>
             </CardContent>
           </Card>
+
           <Card className="stat-card-accent">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm opacity-80">Volume mensuel moyen</p>
-                  <p className="text-3xl font-bold">4.1M TND</p>
-                  <p className="text-xs opacity-70 mt-1">Sur les 12 derniers mois</p>
-                </div>
-                <BarChart3 className="h-8 w-8 opacity-50" />
-              </div>
+              <p className="text-sm opacity-80">
+                Montant mensuel moyen demandé
+              </p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(
+                  reimbursementsByMonth.reduce(
+                    (sum, item) => sum + item.amount * 1000,
+                    0
+                  ) / monthsToShow
+                )}
+              </p>
+              <p className="text-xs opacity-70 mt-1">
+                Sur les {monthsToShow} derniers mois
+              </p>
             </CardContent>
           </Card>
+
           <Card className="stat-card-warning">
             <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm opacity-80">En attente de traitement</p>
-                  <p className="text-3xl font-bold">{formatCurrency((stats?.pendingReimbursements || 0) * 285)}</p>
-                  <p className="text-xs opacity-70 mt-1">{stats?.pendingReimbursements.toLocaleString()} dossiers</p>
-                </div>
-                <Clock className="h-8 w-8 opacity-50" />
-              </div>
+              <p className="text-sm opacity-80">
+                En attente de traitement
+              </p>
+              <p className="text-2xl font-bold">
+                {formatCurrency(stats.pendingAmount)}
+              </p>
+              <p className="text-xs opacity-70 mt-1">
+                {formatNumber(stats.pendingReimbursements)} dossiers
+              </p>
             </CardContent>
           </Card>
         </div>
 
         {/* Charts */}
         <Tabs defaultValue="reimbursements" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="reimbursements">Remboursements</TabsTrigger>
-            <TabsTrigger value="distribution">Distribution</TabsTrigger>
-            <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsList className="print:hidden">
+            <TabsTrigger value="reimbursements">
+              Remboursements
+            </TabsTrigger>
+            <TabsTrigger value="distribution">
+              Distribution
+            </TabsTrigger>
+            <TabsTrigger value="documents">
+              Documents
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="reimbursements" className="space-y-4">
+          <TabsContent
+            value="reimbursements"
+            className="space-y-4"
+          >
             <div className="grid gap-6 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Évolution des remboursements</CardTitle>
-                  <CardDescription>Nombre et montant par mois</CardDescription>
+                  <CardTitle>
+                    Évolution des remboursements
+                  </CardTitle>
+                  <CardDescription>
+                    Nombre et montant par mois
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <BarChart data={reimbursementsByMonth}>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                        <XAxis dataKey="month" className="text-xs" />
-                        <YAxis yAxisId="left" orientation="left" className="text-xs" />
-                        <YAxis yAxisId="right" orientation="right" className="text-xs" />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--card))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "var(--radius)",
-                          }}
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          className="stroke-border"
                         />
+                        <XAxis dataKey="month" />
+                        <YAxis yAxisId="left" />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                        />
+                        <Tooltip />
                         <Legend />
-                        <Bar yAxisId="left" dataKey="count" name="Nombre" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                        <Bar yAxisId="right" dataKey="amount" name="Montant (K TND)" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="count"
+                          name="Nombre"
+                          fill="hsl(var(--primary))"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Bar
+                          yAxisId="right"
+                          dataKey="amount"
+                          name="Montant (K TND)"
+                          fill="hsl(var(--accent))"
+                          radius={[4, 4, 0, 0]}
+                        />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -472,15 +805,24 @@ export default function RapportsPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Répartition par statut</CardTitle>
-                  <CardDescription>Statut des demandes de remboursement</CardDescription>
+                  <CardTitle>
+                    Répartition par statut
+                  </CardTitle>
+                  <CardDescription>
+                    Statut des demandes de remboursement
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <PieChart>
                         <Pie
-                          data={reimbursementsByStatus}
+                          data={reimbursementsByStatus.filter(
+                            (item) => item.value > 0
+                          )}
                           cx="50%"
                           cy="50%"
                           innerRadius={60}
@@ -488,17 +830,16 @@ export default function RapportsPage() {
                           paddingAngle={5}
                           dataKey="value"
                         >
-                          {reimbursementsByStatus.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
+                          {reimbursementsByStatus
+                            .filter((item) => item.value > 0)
+                            .map((item) => (
+                              <Cell
+                                key={item.name}
+                                fill={item.color}
+                              />
+                            ))}
                         </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--card))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "var(--radius)",
-                          }}
-                        />
+                        <Tooltip />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -508,16 +849,26 @@ export default function RapportsPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="distribution" className="space-y-4">
+          <TabsContent
+            value="distribution"
+            className="space-y-4"
+          >
             <div className="grid gap-6 lg:grid-cols-2">
               <Card>
                 <CardHeader>
-                  <CardTitle>Prestataires par type</CardTitle>
-                  <CardDescription>Répartition des prestataires de santé</CardDescription>
+                  <CardTitle>
+                    Prestataires par type
+                  </CardTitle>
+                  <CardDescription>
+                    Répartition des prestataires de santé
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="h-[300px]">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer
+                      width="100%"
+                      height="100%"
+                    >
                       <PieChart>
                         <Pie
                           data={providersByType}
@@ -525,20 +876,19 @@ export default function RapportsPage() {
                           cy="50%"
                           outerRadius={100}
                           dataKey="value"
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                          label={({ name, percent }) =>
+                            `${name} (${(percent * 100).toFixed(0)}%)`
+                          }
                           labelLine={false}
                         >
-                          {providersByType.map((_, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          {providersByType.map((item, index) => (
+                            <Cell
+                              key={item.name}
+                              fill={COLORS[index % COLORS.length]}
+                            />
                           ))}
                         </Pie>
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: "hsl(var(--card))",
-                            border: "1px solid hsl(var(--border))",
-                            borderRadius: "var(--radius)",
-                          }}
-                        />
+                        <Tooltip />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -547,31 +897,49 @@ export default function RapportsPage() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Statistiques des remboursements</CardTitle>
-                  <CardDescription>Détail par statut</CardDescription>
+                  <CardTitle>
+                    Statistiques des remboursements
+                  </CardTitle>
+                  <CardDescription>
+                    Détail par statut
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-warning/10">
-                      <div className="flex items-center gap-3">
-                        <div className="h-3 w-3 rounded-full bg-warning" />
-                        <span>En attente</span>
-                      </div>
-                      <Badge className="badge-warning">{stats?.pendingReimbursements}</Badge>
+                    <div className="flex items-center justify-between rounded-lg bg-warning/10 p-4">
+                      <span>En attente</span>
+                      <Badge className="badge-warning">
+                        {formatNumber(
+                          stats.pendingReimbursements
+                        )}
+                      </Badge>
                     </div>
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-success/10">
-                      <div className="flex items-center gap-3">
-                        <div className="h-3 w-3 rounded-full bg-success" />
-                        <span>Approuvés</span>
-                      </div>
-                      <Badge className="badge-success">{stats?.approvedReimbursements}</Badge>
+
+                    <div className="flex items-center justify-between rounded-lg bg-success/10 p-4">
+                      <span>Approuvés</span>
+                      <Badge className="badge-success">
+                        {formatNumber(
+                          stats.approvedReimbursements
+                        )}
+                      </Badge>
                     </div>
-                    <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10">
-                      <div className="flex items-center gap-3">
-                        <div className="h-3 w-3 rounded-full bg-destructive" />
-                        <span>Rejetés</span>
-                      </div>
-                      <Badge className="badge-destructive">{stats?.rejectedReimbursements}</Badge>
+
+                    <div className="flex items-center justify-between rounded-lg bg-destructive/10 p-4">
+                      <span>Rejetés</span>
+                      <Badge className="badge-destructive">
+                        {formatNumber(
+                          stats.rejectedReimbursements
+                        )}
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-lg bg-primary/10 p-4">
+                      <span>En cours</span>
+                      <Badge variant="outline">
+                        {formatNumber(
+                          stats.processingReimbursements
+                        )}
+                      </Badge>
                     </div>
                   </div>
                 </CardContent>
@@ -579,27 +947,41 @@ export default function RapportsPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="documents" className="space-y-4">
+          <TabsContent
+            value="documents"
+            className="space-y-4"
+          >
             <Card>
               <CardHeader>
                 <CardTitle>Documents par type</CardTitle>
-                <CardDescription>Répartition des documents téléversés</CardDescription>
+                <CardDescription>
+                  Répartition des documents téléversés
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={documentsByType} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis type="number" className="text-xs" />
-                      <YAxis dataKey="name" type="category" width={150} className="text-xs" />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: "var(--radius)",
-                        }}
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                  >
+                    <BarChart
+                      data={documentsByType}
+                      layout="vertical"
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        width={150}
                       />
-                      <Bar dataKey="value" name="Nombre" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                      <Tooltip />
+                      <Bar
+                        dataKey="value"
+                        name="Nombre"
+                        fill="hsl(var(--primary))"
+                        radius={[0, 4, 4, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

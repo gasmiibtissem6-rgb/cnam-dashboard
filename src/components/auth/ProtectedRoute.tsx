@@ -29,7 +29,7 @@ export function ProtectedRoute({ children, requiredRoles }: ProtectedRouteProps)
         required_roles: requiredRoles,
       });
     }
-  }, [isLoading, user, hasAccess]);
+  }, [isLoading, user, hasAccess, location.pathname, roles, requiredRoles]);
 
   if (isLoading) {
     return (

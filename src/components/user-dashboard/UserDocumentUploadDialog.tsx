@@ -57,8 +57,18 @@ export function UserDocumentUploadDialog({ open, onOpenChange, memberId, onSucce
       onOpenChange(false);
       setDocumentType(""); setFile(null);
       onSuccess();
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    } catch (err: unknown) {
+  console.error("Document upload error:", err);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      err instanceof Error
+        ? err.message
+        : "Impossible de téléverser le document.",
+  });
+
     } finally {
       setIsSubmitting(false);
     }

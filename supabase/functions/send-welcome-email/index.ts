@@ -139,7 +139,7 @@ const handler = async (req: Request): Promise<Response> => {
           <div class="content">
             <p>Bonjour <strong>${firstName} ${lastName}</strong>,</p>
             <p>Votre demande d'inscription a été approuvée ! Vous avez été ajouté(e) en tant que <strong>${roleLabel}</strong> sur la plateforme de gestion CNAM.</p>
-            
+
             <div class="credentials">
               <h3 style="margin-top: 0; color: #1e3a5f;">🔐 Vos identifiants de connexion</h3>
               <div class="credential-row">
@@ -151,12 +151,12 @@ const handler = async (req: Request): Promise<Response> => {
                 <span class="value">${tempPassword}</span>
               </div>
             </div>
-            
+
             <div class="warning">
               <p class="warning-title">⚠️ Important - Sécurité</p>
               <p style="margin: 0;">Pour des raisons de sécurité, vous devez changer votre mot de passe lors de votre première connexion. Le nouveau mot de passe doit contenir au moins 12 caractères avec des majuscules, minuscules, chiffres et caractères spéciaux.</p>
             </div>
-            
+
             <p>Pour vous connecter, cliquez sur le bouton ci-dessous:</p>
             <center>
               <a href="https://fb22e518-053a-432e-b31a-b0ccfc0f8fff.lovableproject.com/login" class="button">Se connecter →</a>
@@ -199,13 +199,24 @@ const handler = async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in send-welcome-email function:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in send-welcome-email function:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur s'est produite",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 };
 
 serve(handler);

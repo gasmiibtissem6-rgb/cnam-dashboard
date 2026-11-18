@@ -40,12 +40,12 @@ const handler = async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { 
+    const {
       email, otp_code, phone, message,
       request_type, cnam_number, document_url,
       organization_name, organization_type, license_number
     }: VerifyRequest = await req.json();
-    
+
     if (!email || !otp_code) {
       return new Response(
         JSON.stringify({ error: "Données manquantes" }),
@@ -113,7 +113,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // OTP verified - create registration request
-    const insertData: Record<string, any> = {
+    const insertData: Record<string, string | null> = {
       first_name: otpRecord.first_name,
       last_name: otpRecord.last_name,
       email: email,
@@ -179,7 +179,20 @@ function getTypeLabel(requestType: string): string {
   }
 }
 
-async function notifyAdmins(supabase: any, requestData: any) {
+async function notifyAdmins(
+  supabase: ReturnType<typeof createClient>,
+  requestData: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    request_type: string;
+    cnam_number?: string | null;
+    organization_name?: string | null;
+    document_url?: string | null;
+  }
+) {
+
+
   try {
     const { data: adminRoles } = await supabase
       .from("user_roles")
@@ -188,13 +201,15 @@ async function notifyAdmins(supabase: any, requestData: any) {
 
     if (!adminRoles || adminRoles.length === 0) return;
 
-    const adminUserIds = adminRoles.map((r: any) => r.user_id);
+    const adminUserIds = adminRoles.map((r: { user_id: string }) => r.user_id);
     const { data: adminProfiles } = await supabase
       .from("profiles")
       .select("email")
       .in("user_id", adminUserIds);
 
-    const adminEmails = adminProfiles?.map((p: any) => p.email).filter(Boolean) || [];
+    const adminEmails = adminProfiles
+  ?.map((p: { email: string | null }) => p.email)
+  .filter((email): email is string => Boolean(email)) || [];
     if (adminEmails.length === 0) return;
 
     const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");

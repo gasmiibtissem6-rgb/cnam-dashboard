@@ -9,8 +9,18 @@ import { format } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+interface UserDocument {
+  id: string;
+  file_name: string;
+  file_url: string;
+  document_type: string;
+  status: string;
+  file_size: number | null;
+  created_at: string;
+}
+
 interface Props {
-  documents: any[];
+  documents: UserDocument[];
   loading: boolean;
   getStatusBadge: (status: string) => React.ReactNode;
   onUpload: () => void;
@@ -41,25 +51,45 @@ export function UserDocumentsTab({ documents, loading, getStatusBadge, onUpload 
 
   const documentTypes = [...new Set(documents.map((d) => d.document_type))];
 
-  const handleView = async (doc: any) => {
-    try {
-      const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.file_url, 300);
-      if (error) throw error;
-      window.open(data.signedUrl, "_blank");
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erreur", description: "Impossible d'ouvrir le document." });
-    }
-  };
+  const handleView = async (doc: UserDocument) => {
+  try {
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(doc.file_url, 300);
 
-  const handleDownload = async (doc: any) => {
-    try {
-      const { data, error } = await supabase.storage.from("documents").createSignedUrl(doc.file_url, 300, { download: true });
-      if (error) throw error;
-      window.open(data.signedUrl, "_blank");
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erreur", description: "Impossible de télécharger le document." });
-    }
-  };
+    if (error) throw error;
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  } catch (err: unknown) {
+    console.error("Document view error:", err);
+
+    toast({
+      variant: "destructive",
+      title: "Erreur",
+      description: "Impossible d'ouvrir le document.",
+    });
+  }
+};
+
+  const handleDownload = async (doc: UserDocument) => {
+  try {
+    const { data, error } = await supabase.storage
+      .from("documents")
+      .createSignedUrl(doc.file_url, 300, { download: true });
+
+    if (error) throw error;
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+  } catch (err: unknown) {
+    console.error("Document download error:", err);
+
+    toast({
+      variant: "destructive",
+      title: "Erreur",
+      description: "Impossible de télécharger le document.",
+    });
+  }
+};
 
   const formatSize = (bytes: number | null) => {
     if (!bytes) return "—";

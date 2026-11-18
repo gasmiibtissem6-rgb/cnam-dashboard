@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import React from "react";
@@ -155,12 +155,22 @@ const FAKE_EVENTS = [
     description: "Cabinet Dentaire Dr. Haddad - Contrôle post-traitement", all_day: false,
   },
 ];
-
+type UserReimbursement = (typeof FAKE_REIMBURSEMENTS)[number];
+type UserDocument = (typeof FAKE_DOCUMENTS)[number];
+type UserEvent = (typeof FAKE_EVENTS)[number];
+type MemberRecord = typeof FAKE_MEMBER;
 export function useUserDashboardData() {
-  const [reimbursements, setReimbursements] = useState<any[]>(FAKE_REIMBURSEMENTS);
-  const [documents, setDocuments] = useState<any[]>(FAKE_DOCUMENTS);
-  const [events, setEvents] = useState<any[]>(FAKE_EVENTS);
-  const [memberRecord, setMemberRecord] = useState<any>(FAKE_MEMBER);
+  const [reimbursements, setReimbursements] =
+  useState<UserReimbursement[]>(FAKE_REIMBURSEMENTS);
+
+const [documents, setDocuments] =
+  useState<UserDocument[]>(FAKE_DOCUMENTS);
+
+const [events, setEvents] =
+  useState<UserEvent[]>(FAKE_EVENTS);
+
+const [memberRecord, setMemberRecord] =
+  useState<MemberRecord>(FAKE_MEMBER);
   const [loading, setLoading] = useState(false);
 
   const fetchData = async () => {

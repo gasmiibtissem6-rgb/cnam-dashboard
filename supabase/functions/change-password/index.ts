@@ -14,19 +14,19 @@ const TOTP_PERIOD = 30;
 function base32Decode(encoded: string): Uint8Array {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   const cleanEncoded = encoded.toUpperCase().replace(/=+$/, "");
-  
+
   let bits = "";
   for (const char of cleanEncoded) {
     const val = alphabet.indexOf(char);
     if (val === -1) continue;
     bits += val.toString(2).padStart(5, "0");
   }
-  
+
   const bytes = new Uint8Array(Math.floor(bits.length / 8));
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(bits.slice(i * 8, (i + 1) * 8), 2);
   }
-  
+
   return bytes;
 }
 
@@ -44,21 +44,21 @@ async function hmacSha1(key: Uint8Array, message: Uint8Array): Promise<ArrayBuff
 async function generateTOTP(secret: string, timeStep: number = 0): Promise<string> {
   const key = base32Decode(secret);
   const time = Math.floor(Date.now() / 1000 / TOTP_PERIOD) + timeStep;
-  
+
   const timeBytes = new Uint8Array(8);
   const dataView = new DataView(timeBytes.buffer);
   dataView.setBigUint64(0, BigInt(time));
-  
+
   const hmac = await hmacSha1(key, timeBytes);
   const hmacArray = new Uint8Array(hmac);
-  
+
   const offset = hmacArray[hmacArray.length - 1] & 0x0f;
-  const code = 
+  const code =
     ((hmacArray[offset] & 0x7f) << 24) |
     ((hmacArray[offset + 1] & 0xff) << 16) |
     ((hmacArray[offset + 2] & 0xff) << 8) |
     (hmacArray[offset + 3] & 0xff);
-  
+
   return (code % 1000000).toString().padStart(6, "0");
 }
 
@@ -81,8 +81,7 @@ function validatePassword(password: string): { valid: boolean; error?: string } 
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);
   const hasNumbers = /\d/.test(password);
-  const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'/`~]/.test(password);
-
+  const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>_\-+=[\]\\;'/`~]/.test(password);
   const complexityCount = [hasUpperCase, hasLowerCase, hasNumbers, hasSpecialChar].filter(Boolean).length;
 
   if (complexityCount < 3) {
@@ -162,8 +161,8 @@ const handler = async (req: Request): Promise<Response> => {
     if (securitySettings.locked_until && new Date(securitySettings.locked_until) > new Date()) {
       const unlockTime = new Date(securitySettings.locked_until);
       return new Response(
-        JSON.stringify({ 
-          error: `Compte temporairement bloqué. Réessayez après ${unlockTime.toLocaleTimeString("fr-FR")}.` 
+        JSON.stringify({
+          error: `Compte temporairement bloqué. Réessayez après ${unlockTime.toLocaleTimeString("fr-FR")}.`
         }),
         { status: 429, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
@@ -283,13 +282,22 @@ const handler = async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in change-password:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in change-password:", error);
+
+  return new Response(
+    JSON.stringify({ error: "Une erreur s'est produite" }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 };
 
 serve(handler);

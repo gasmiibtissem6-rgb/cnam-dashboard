@@ -109,13 +109,18 @@ export function ProfileEditDialog({
 
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      console.error("Save error:", error);
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message || "Impossible de sauvegarder les modifications.",
-      });
+    } catch (error: unknown) {
+  console.error("Save error:", error);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      error instanceof Error
+        ? error.message
+        : "Impossible de sauvegarder les modifications.",
+  });
+
     } finally {
       setIsSubmitting(false);
     }

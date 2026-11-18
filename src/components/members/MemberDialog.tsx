@@ -130,12 +130,16 @@ export function MemberDialog({ open, onOpenChange, member, onSuccess }: MemberDi
 
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message,
-      });
+    } catch (error: unknown) {
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      error instanceof Error
+        ? error.message
+        : "Impossible d'enregistrer l'assuré",
+  });
+
     } finally {
       setIsSubmitting(false);
     }

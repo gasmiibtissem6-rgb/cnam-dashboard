@@ -7,8 +7,17 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameM
 import { fr } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
+interface CalendarEvent {
+  id: string;
+  start_date: string;
+  title: string;
+  event_type?: string | null;
+  description?: string | null;
+  end_date?: string | null;
+}
+
 interface Props {
-  events: any[];
+  events: CalendarEvent[];
 }
 
 const eventTypeColors: Record<string, string> = {
@@ -30,7 +39,7 @@ export function UserCalendarTab({ events }: Props) {
   const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
   const eventsByDate = useMemo(() => {
-    const map: Record<string, any[]> = {};
+    const map: Record<string, CalendarEvent[]> = {};
     events.forEach((e) => {
       const key = format(new Date(e.start_date), "yyyy-MM-dd");
       if (!map[key]) map[key] = [];

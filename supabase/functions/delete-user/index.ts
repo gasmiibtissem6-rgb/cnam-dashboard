@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -5,7 +6,18 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+function respond(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+}
 
 interface DeleteUserRequest {
   userId: string;
@@ -16,161 +28,155 @@ serve(async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return respond({ error: "Méthode non autorisée" }, 405);
+  }
+
   try {
     const authHeader = req.headers.get("Authorization");
+
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Non autorisé" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      return respond({ error: "Non autorisé" }, 401);
     }
 
-    const token = authHeader.replace("Bearer ", "").trim();
+    const token = authHeader.slice(7).trim();
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    // Validate JWT and extract user (do not rely on an active session)
-    const authClient = createClient(supabaseUrl, supabaseAnonKey);
-    const { data: userData, error: userError } = await authClient.auth.getUser(token);
-
-    if (userError || !userData?.user?.id) {
-      console.error("Invalid JWT:", userError);
-      return new Response(JSON.stringify({ error: "Non autorisé" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+    if (!supabaseUrl || !anonKey || !serviceKey) {
+      console.error("Missing Supabase environment variables");
+      return respond({ error: "Configuration serveur invalide" }, 500);
     }
 
-    const requestingUserId = userData.user.id;
-    const requestingUserEmail = userData.user.email;
+    const authClient = createClient(supabaseUrl, anonKey);
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    const {
+      data: { user },
+      error: authError,
+    } = await authClient.auth.getUser(token);
 
-    // Check admin role (use service key to avoid any RLS edge cases)
+    if (authError || !user) {
+      return respond({ error: "Session invalide" }, 401);
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceKey);
+
+    // Verify administrator privileges server-side.
     const { data: roles, error: rolesError } = await adminClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", requestingUserId);
+      .eq("user_id", user.id);
 
     if (rolesError) {
-      console.error("Error checking roles:", rolesError);
-      return new Response(JSON.stringify({ error: "Non autorisé" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+      console.error("Role verification failed:", rolesError);
+      return respond({ error: "Vérification des droits impossible" }, 500);
     }
 
-    const isAdmin = roles?.some((r) => r.role === "admin");
+    const isAdmin = roles?.some((r) => r.role === "admin") ?? false;
+
     if (!isAdmin) {
-      return new Response(
-        JSON.stringify({ error: "Seuls les administrateurs peuvent supprimer des utilisateurs" }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      return respond(
+        { error: "Seuls les administrateurs peuvent supprimer des comptes" },
+        403
       );
     }
 
-    const { userId }: DeleteUserRequest = await req.json();
+    let body: DeleteUserRequest;
 
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "ID utilisateur requis" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    try {
+      body = await req.json();
+    } catch {
+      return respond({ error: "JSON invalide" }, 400);
+    }
+
+    if (
+      !body ||
+      typeof body.userId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.userId)
+    ) {
+      return respond({ error: "Identifiant utilisateur invalide" }, 400);
+    }
+
+    const { userId } = body;
+
+    if (userId === user.id) {
+      return respond(
+        { error: "Vous ne pouvez pas supprimer votre propre compte" },
+        403
       );
     }
 
-    // Prevent self-deletion
-    if (userId === requestingUserId) {
-      return new Response(
-        JSON.stringify({ error: "Vous ne pouvez pas supprimer votre propre compte" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
-    }
-
-    // Get user info for logging
-    const { data: targetUser } = await adminClient.auth.admin.getUserById(userId);
-    const targetEmail = targetUser?.user?.email || "unknown";
-
-    // Check if target user is an admin
-    const { data: targetRoles } = await adminClient
+    const { data: targetRoles, error: targetRolesError } = await adminClient
       .from("user_roles")
       .select("role")
       .eq("user_id", userId);
 
-    const targetIsAdmin = targetRoles?.some((r) => r.role === "admin");
+    if (targetRolesError) {
+      console.error("Target role verification failed:", targetRolesError);
+      return respond({ error: "Vérification du compte impossible" }, 500);
+    }
 
-    // Only ranime.jemal@esprim.tn can delete other admins
-    const SUPER_ADMIN_EMAIL = "ranime.jemal@esprim.tn";
-    if (targetIsAdmin && requestingUserEmail !== SUPER_ADMIN_EMAIL) {
-      console.log(
-        `User ${requestingUserEmail} attempted to delete admin ${targetEmail} but lacks permission`
-      );
-      return new Response(
-        JSON.stringify({
-          error: "Seul l'administrateur principal peut supprimer d'autres administrateurs",
-        }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    // Protect every administrator from deletion through this endpoint.
+    // Admin deletion requires a separate, explicitly approved workflow.
+    const targetIsAdmin =
+      targetRoles?.some((r) => r.role === "admin") ?? false;
+
+    if (targetIsAdmin) {
+      return respond(
+        {
+          error:
+            "La suppression d'un administrateur nécessite une procédure spéciale",
+        },
+        403
       );
     }
 
-    console.log(
-      `Admin ${requestingUserEmail} is deleting user ${targetEmail} (${userId})`
-    );
-    // Delete related data first (in order to respect foreign key constraints)
-    // user_roles
-    await adminClient.from("user_roles").delete().eq("user_id", userId);
-    console.log(`Deleted user_roles for ${userId}`);
+    const { data: targetData, error: targetError } =
+      await adminClient.auth.admin.getUserById(userId);
 
-    // user_security_settings
-    await adminClient.from("user_security_settings").delete().eq("user_id", userId);
-    console.log(`Deleted user_security_settings for ${userId}`);
-
-    // notifications
-    await adminClient.from("notifications").delete().eq("user_id", userId);
-    console.log(`Deleted notifications for ${userId}`);
-
-    // profiles
-    await adminClient.from("profiles").delete().eq("user_id", userId);
-    console.log(`Deleted profile for ${userId}`);
-
-    // registration_requests (so user can re-register later if needed)
-    if (targetEmail && targetEmail !== "unknown") {
-      await adminClient.from("registration_requests").delete().eq("email", targetEmail);
-      console.log(`Deleted registration_requests for ${targetEmail}`);
+    if (targetError || !targetData?.user) {
+      return respond({ error: "Utilisateur introuvable" }, 404);
     }
 
-    // Finally, delete the auth user
-    const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
+    const targetEmail = targetData.user.email ?? null;
+
+    // Soft-delete the authentication account first.
+    // This prevents login while preserving data for audit and recovery.
+    const { error: deleteError } =
+      await adminClient.auth.admin.deleteUser(userId, true);
 
     if (deleteError) {
-      console.error("Error deleting auth user:", deleteError);
-      return new Response(
-        JSON.stringify({ error: "Impossible de supprimer l'utilisateur" }),
-        { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+      console.error("Auth soft-delete failed:", deleteError);
+      return respond({ error: "Suppression impossible" }, 500);
     }
 
-    console.log(`Successfully deleted user ${targetEmail} (${userId})`);
+    // Best-effort audit. An audit failure is reported in server logs.
+    const { error: auditError } = await adminClient
+      .from("audit_logs")
+      .insert({
+        user_id: user.id,
+        action: "delete_user",
+        target_table: "auth.users",
+        target_id: userId,
+        details: {
+          deleted_email: targetEmail,
+          performed_by: user.email ?? null,
+          deletion_type: "soft",
+        },
+      });
 
-    // Log the deletion in audit
-    await adminClient.from("audit_logs").insert({
-      user_id: requestingUserId,
-      action: "delete_user",
-      target_table: "auth.users",
-      target_id: userId,
-      details: { deleted_email: targetEmail, performed_by: requestingUserEmail },
+    if (auditError) {
+      console.error("Deletion audit failed:", auditError);
+    }
+
+    return respond({
+      success: true,
+      message: "Compte désactivé par suppression douce",
     });
-
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-
-  } catch (error: any) {
-    console.error("Error in delete-user function:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+  } catch (error) {
+    console.error("Unexpected delete-user error:", error);
+    return respond({ error: "Erreur interne du serveur" }, 500);
   }
 });

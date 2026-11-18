@@ -173,14 +173,17 @@ export function DocumentUploadDialog({
         onOpenChange(false);
         onSuccess();
       }, 500);
-    } catch (error: any) {
-      console.error("Upload error:", error);
-      toast({
-        variant: "destructive",
-        title: "Erreur de téléversement",
-        description: normalizeUploadError(error),
-      });
-    } finally {
+    } catch (error: unknown) {
+  console.error("Upload error:", error);
+  toast({
+    variant: "destructive",
+    title: "Erreur de téléversement",
+    description: normalizeUploadError(
+  error instanceof Error ? error.message : String(error)
+),
+  });
+
+} finally {
       setUploading(false);
     }
   };

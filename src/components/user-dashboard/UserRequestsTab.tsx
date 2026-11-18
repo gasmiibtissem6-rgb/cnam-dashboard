@@ -9,8 +9,13 @@ import { format } from "date-fns";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 
+import type { Database } from "@/integrations/supabase/types";
+
+type Reimbursement =
+  Database["public"]["Tables"]["reimbursements"]["Row"];
+
 interface Props {
-  reimbursements: any[];
+  reimbursements: Reimbursement[];
   loading: boolean;
   getStatusBadge: (status: string) => React.ReactNode;
   onNewRequest: () => void;
@@ -20,7 +25,8 @@ export function UserRequestsTab({ reimbursements, loading, getStatusBadge, onNew
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
-  const [selectedRequest, setSelectedRequest] = useState<any>(null);
+  const [selectedRequest, setSelectedRequest] =
+  useState<Reimbursement | null>(null);
 
   const filtered = reimbursements
     .filter((r) => {

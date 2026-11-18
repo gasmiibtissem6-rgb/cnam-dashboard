@@ -139,7 +139,7 @@ export function ReimbursementDialog({
         }
 
         const refNumber = `RMB-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 10000)).padStart(4, "0")}`;
-        
+
         const { error } = await supabase.from("reimbursements").insert({
           reference_number: refNumber,
           insured_member_id: form.insured_member_id,
@@ -156,8 +156,18 @@ export function ReimbursementDialog({
 
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Erreur", description: error.message });
+    } catch (error: unknown) {
+  console.error("Reimbursement error:", error);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      error instanceof Error
+        ? error.message
+        : "Impossible d'enregistrer le remboursement.",
+  });
+
     } finally {
       setIsSubmitting(false);
     }
@@ -289,8 +299,8 @@ export function ReimbursementDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
             Annuler
           </Button>
-          <Button 
-            onClick={handleSubmit} 
+          <Button
+            onClick={handleSubmit}
             disabled={isSubmitting}
             variant={mode === "reject" ? "destructive" : "default"}
           >

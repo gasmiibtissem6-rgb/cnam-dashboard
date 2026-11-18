@@ -123,12 +123,18 @@ export function ProviderDialog({ open, onOpenChange, provider, onSuccess }: Prov
 
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message,
-      });
+    } catch (error: unknown) {
+  console.error("Provider save error:", error);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      error instanceof Error
+        ? error.message
+        : "Impossible d'enregistrer le prestataire.",
+  });
+
     } finally {
       setIsSubmitting(false);
     }

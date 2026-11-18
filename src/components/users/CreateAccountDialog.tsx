@@ -200,13 +200,22 @@ export function CreateAccountDialog({ open, onOpenChange, onSuccess }: CreateAcc
       resetForm();
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      console.error("Error creating account:", error);
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: normalizeUserCreationError(error),
-      });
+    } catch (error: unknown) {
+  console.error("Error creating account:", error);
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "Erreur inconnue";
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description: normalizeUserCreationError(errorMessage),
+  });
+
     } finally {
       setIsSubmitting(false);
     }

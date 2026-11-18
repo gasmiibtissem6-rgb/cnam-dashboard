@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,41 +73,64 @@ export default function RemboursementsPage() {
   const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const { toast } = useToast();
 
-  const fetchReimbursements = async () => {
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("reimbursements")
-        .select(`
-          *,
-          insured_member:insured_members(first_name, last_name),
-          provider:health_providers(name)
-        `)
-        .order("created_at", { ascending: false });
 
-      if (error) throw error;
-      setReimbursements(data || []);
-      setFilteredReimbursements(data || []);
-    } catch (error: any) {
-      toast({ variant: "destructive", title: "Erreur", description: "Impossible de charger les remboursements." });
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchReimbursements = useCallback(async () => {
+  try {
+    setLoading(true);
 
-  const fetchLookupData = async () => {
-    const [membersRes, providersRes] = await Promise.all([
-      supabase.from("insured_members").select("id, first_name, last_name").order("last_name"),
-      supabase.from("health_providers").select("id, name").eq("status", "approved").order("name"),
-    ]);
-    setMembers(membersRes.data || []);
-    setProviders(providersRes.data || []);
-  };
+    const { data, error } = await supabase
+      .from("reimbursements")
+      .select(`
+        *,
+        insured_member:insured_members(first_name, last_name),
+        provider:health_providers(name)
+      `)
+      .order("created_at", { ascending: false });
 
-  useEffect(() => {
-    fetchReimbursements();
-    fetchLookupData();
-  }, []);
+    if (error) throw error;
+
+    setReimbursements(data || []);
+    setFilteredReimbursements(data || []);
+  } catch (error: unknown) {
+    console.error("Erreur de chargement des remboursements :", error);
+
+    toast({
+      variant: "destructive",
+      title: "Erreur",
+      description: "Impossible de charger les remboursements.",
+    });
+  } finally {
+    setLoading(false);
+  }
+}, [toast]);
+
+
+
+const fetchLookupData = useCallback(async () => {
+  const [membersRes, providersRes] = await Promise.all([
+    supabase
+      .from("insured_members")
+      .select("id, first_name, last_name")
+      .order("last_name"),
+
+    supabase
+      .from("health_providers")
+      .select("id, name")
+      .eq("status", "approved")
+      .order("name"),
+  ]);
+
+  setMembers(membersRes.data || []);
+  setProviders(providersRes.data || []);
+}, []);
+
+
+
+useEffect(() => {
+  void fetchReimbursements();
+  void fetchLookupData();
+}, [fetchReimbursements, fetchLookupData]);
+
 
   useEffect(() => {
     let filtered = reimbursements;

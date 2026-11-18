@@ -17,7 +17,7 @@ export function validatePassword(password: string): PasswordValidationResult {
     hasUpperCase: /[A-Z]/.test(password),
     hasLowerCase: /[a-z]/.test(password),
     hasNumbers: /\d/.test(password),
-    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'/`~]/.test(password),
+    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>_\-+=[\]\\;'/`~]/.test(password),
   };
 
   const complexityCount = [

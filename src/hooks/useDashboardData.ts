@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { format, subMonths } from "date-fns";
@@ -40,87 +41,175 @@ interface AlertData {
 export function useDashboardData() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [chartData, setChartData] = useState<ChartData[]>([]);
-  const [distributionData, setDistributionData] = useState<DistributionData[]>([]);
+  const [distributionData, setDistributionData] = useState<
+    DistributionData[]
+  >([]);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
   const [loading, setLoading] = useState(true);
+
   const { toast } = useToast();
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
-      // Fetch counts with parallel queries
       const [
-        { count: membersCount },
-        { count: providersCount },
-        { data: reimbursements },
-        { data: documents },
-        { count: pendingDocsCount },
-        { count: pendingReimbCount },
+        membersResult,
+        providersResult,
+        reimbursementsResult,
+        documentsResult,
+        pendingDocsResult,
+        pendingReimbResult,
       ] = await Promise.all([
-        supabase.from("insured_members").select("*", { count: "exact", head: true }),
-        supabase.from("health_providers").select("*", { count: "exact", head: true }),
-        supabase.from("reimbursements").select("status, amount_requested, amount_approved, created_at"),
-        supabase.from("documents").select("status, document_type"),
-        supabase.from("documents").select("*", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("reimbursements").select("*", { count: "exact", head: true }).eq("status", "pending"),
+        supabase
+          .from("insured_members")
+          .select("*", { count: "exact", head: true }),
+
+        supabase
+          .from("health_providers")
+          .select("*", { count: "exact", head: true }),
+
+        supabase
+          .from("reimbursements")
+          .select(
+            "status, amount_requested, amount_approved, created_at"
+          ),
+
+        supabase
+          .from("documents")
+          .select("status, document_type"),
+
+        supabase
+          .from("documents")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
+
+        supabase
+          .from("reimbursements")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
       ]);
 
-      // Calculate stats
-      const totalReimb = reimbursements?.length || 0;
-      const approvedReimb = reimbursements?.filter(r => r.status === "approved").length || 0;
-      const processingRate = totalReimb > 0 ? Math.round((approvedReimb / totalReimb) * 100 * 10) / 10 : 0;
+      const results = [
+        membersResult,
+        providersResult,
+        reimbursementsResult,
+        documentsResult,
+        pendingDocsResult,
+        pendingReimbResult,
+      ];
 
-      // Calculate current month amount
+      for (const result of results) {
+        if (result.error) {
+          throw result.error;
+        }
+      }
+
+      const membersCount = membersResult.count ?? 0;
+      const providersCount = providersResult.count ?? 0;
+      const reimbursements = reimbursementsResult.data ?? [];
+      const documents = documentsResult.data ?? [];
+      const pendingDocsCount = pendingDocsResult.count ?? 0;
+      const pendingReimbCount = pendingReimbResult.count ?? 0;
+
+      // Statistiques des remboursements
+      const totalReimb = reimbursements.length;
+
+      const approvedReimb = reimbursements.filter(
+        (reimbursement) => reimbursement.status === "approved"
+      ).length;
+
+      const processingRate =
+        totalReimb > 0
+          ? Math.round((approvedReimb / totalReimb) * 1000) / 10
+          : 0;
+
+      // Montant des demandes du mois actuel
       const currentMonthStart = new Date();
       currentMonthStart.setDate(1);
       currentMonthStart.setHours(0, 0, 0, 0);
-      
+
       const monthlyAmount = reimbursements
-        ?.filter(r => new Date(r.created_at) >= currentMonthStart)
-        .reduce((sum, r) => sum + Number(r.amount_requested), 0) || 0;
+        .filter(
+          (reimbursement) =>
+            new Date(reimbursement.created_at) >= currentMonthStart
+        )
+        .reduce(
+          (sum, reimbursement) =>
+            sum + Number(reimbursement.amount_requested ?? 0),
+          0
+        );
 
       setStats({
-        totalMembers: membersCount || 0,
-        totalProviders: providersCount || 0,
+        totalMembers: membersCount,
+        totalProviders: providersCount,
         totalReimbursements: totalReimb,
         processingRate,
-        pendingDocuments: pendingDocsCount || 0,
-        pendingReimbursements: pendingReimbCount || 0,
+        pendingDocuments: pendingDocsCount,
+        pendingReimbursements: pendingReimbCount,
         monthlyReimbursementAmount: monthlyAmount,
-        membersChange: 12.5, // Would need historical data for real calculation
+
+        // Valeurs provisoires : données historiques nécessaires
+        membersChange: 12.5,
         providersChange: 3.2,
         reimbursementsChange: 8.7,
       });
 
-      // Generate chart data from last 12 months
-      const monthlyData: { [key: string]: { requests: number; approved: number } } = {};
+      // Graphique des 12 derniers mois
+      const monthlyData: Record<
+        string,
+        { requests: number; approved: number }
+      > = {};
+
       for (let i = 11; i >= 0; i--) {
         const monthDate = subMonths(new Date(), i);
         const monthKey = format(monthDate, "yyyy-MM");
-        monthlyData[monthKey] = { requests: 0, approved: 0 };
+
+        monthlyData[monthKey] = {
+          requests: 0,
+          approved: 0,
+        };
       }
 
-      reimbursements?.forEach((r) => {
-        const monthKey = format(new Date(r.created_at), "yyyy-MM");
+      reimbursements.forEach((reimbursement) => {
+        const monthKey = format(
+          new Date(reimbursement.created_at),
+          "yyyy-MM"
+        );
+
         if (monthlyData[monthKey]) {
-          monthlyData[monthKey].requests += Number(r.amount_requested);
-          monthlyData[monthKey].approved += Number(r.amount_approved || 0);
+          monthlyData[monthKey].requests += Number(
+            reimbursement.amount_requested ?? 0
+          );
+
+          monthlyData[monthKey].approved += Number(
+            reimbursement.amount_approved ?? 0
+          );
         }
       });
 
-      const chartDataArray = Object.entries(monthlyData).map(([month, data]) => ({
-        month: format(new Date(month + "-01"), "MMM", { locale: fr }),
+      const chartDataArray: ChartData[] = Object.entries(
+        monthlyData
+      ).map(([month, data]) => ({
+        month: format(new Date(`${month}-01`), "MMM", {
+          locale: fr,
+        }),
         demandes: data.requests,
         remboursements: data.approved,
       }));
 
       setChartData(chartDataArray);
 
-      // Distribution by document type
-      const docTypeCount: { [key: string]: number } = {};
-      documents?.forEach((d) => {
-        docTypeCount[d.document_type] = (docTypeCount[d.document_type] || 0) + 1;
+      // Répartition des documents par type
+      const docTypeCount: Record<string, number> = {};
+
+      documents.forEach((document) => {
+        const documentType = document.document_type;
+
+        if (documentType) {
+          docTypeCount[documentType] =
+            (docTypeCount[documentType] ?? 0) + 1;
+        }
       });
 
       const colors = [
@@ -131,20 +220,22 @@ export function useDashboardData() {
         "hsl(0, 84%, 60%)",
       ];
 
-      setDistributionData(
-        Object.entries(docTypeCount)
-          .slice(0, 5)
-          .map(([name, value], index) => ({
-            name,
-            value,
-            color: colors[index % colors.length],
-          }))
-      );
+      const distribution: DistributionData[] = Object.entries(
+        docTypeCount
+      )
+        .slice(0, 5)
+        .map(([name, value], index) => ({
+          name,
+          value,
+          color: colors[index % colors.length],
+        }));
 
-      // Generate real alerts based on data
+      setDistributionData(distribution);
+
+      // Alertes
       const alertsList: AlertData[] = [];
 
-      if (pendingDocsCount && pendingDocsCount > 0) {
+      if (pendingDocsCount > 0) {
         alertsList.push({
           id: "pending-docs",
           type: "warning",
@@ -154,7 +245,7 @@ export function useDashboardData() {
         });
       }
 
-      if (pendingReimbCount && pendingReimbCount > 0) {
+      if (pendingReimbCount > 0) {
         alertsList.push({
           id: "pending-reimb",
           type: "info",
@@ -164,39 +255,53 @@ export function useDashboardData() {
         });
       }
 
-      // Check for expiring cards (would need actual card_expiry_date check)
-      const { data: expiringCards } = await supabase
-        .from("insured_members")
-        .select("*", { count: "exact", head: true })
-        .gte("card_expiry_date", new Date().toISOString())
-        .lte("card_expiry_date", new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString());
+      // Vérifier les cartes expirant dans les 30 prochains jours
+      const now = new Date();
 
-      if (expiringCards && expiringCards.length > 0) {
+      const next30Days = new Date(
+        now.getTime() + 30 * 24 * 60 * 60 * 1000
+      );
+
+      const { count: expiringCardsCount, error: expiringError } =
+        await supabase
+          .from("insured_members")
+          .select("*", { count: "exact", head: true })
+          .gte("card_expiry_date", now.toISOString())
+          .lte("card_expiry_date", next30Days.toISOString());
+
+      if (expiringError) {
+        console.error(
+          "Error fetching expiring cards:",
+          expiringError
+        );
+      } else if (expiringCardsCount && expiringCardsCount > 0) {
         alertsList.push({
           id: "expiring-cards",
           type: "error",
           title: "Cartes expirantes",
-          description: `${expiringCards.length} cartes d'assurance expirent dans les 30 prochains jours`,
+          description: `${expiringCardsCount} cartes d'assurance expirent dans les 30 prochains jours`,
           time: "Récent",
         });
       }
 
       setAlerts(alertsList);
+    } catch (error: unknown) {
+      console.error("Error fetching dashboard data:", error);
 
-    } catch (error: any) {
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: "Impossible de charger les données du tableau de bord.",
+        description:
+          "Impossible de charger les données du tableau de bord.",
       });
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    void fetchDashboardData();
+  }, [fetchDashboardData]);
 
   return {
     stats,

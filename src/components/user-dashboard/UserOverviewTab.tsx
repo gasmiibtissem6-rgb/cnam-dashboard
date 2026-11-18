@@ -4,9 +4,23 @@ import { Calendar, Plus, Loader2, Upload, Receipt, FileText } from "lucide-react
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
+interface Reimbursement {
+  id: string;
+  reference_number: string | null;
+  service_type: string;
+  amount_requested: number;
+  status: string;
+}
+
+interface CalendarEvent {
+  id: string;
+  title: string;
+  start_date: string;
+}
+
 interface Props {
-  reimbursements: any[];
-  events: any[];
+  reimbursements: Reimbursement[];
+  events: CalendarEvent[];
   loading: boolean;
   getStatusBadge: (status: string) => React.ReactNode;
   onNewRequest: () => void;

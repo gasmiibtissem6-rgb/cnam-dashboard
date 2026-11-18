@@ -42,11 +42,29 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (!isLoading && user && roles.length > 0 && !pendingSecurityCheck && !show2FA && !showForcePasswordChange) {
-      navigate(getDashboardRoute(), { replace: true });
-    }
-  }, [isLoading, user, roles, pendingSecurityCheck, show2FA, showForcePasswordChange]);
+
+useEffect(() => {
+  if (
+    !isLoading &&
+    user &&
+    roles.length > 0 &&
+    !pendingSecurityCheck &&
+    !show2FA &&
+    !showForcePasswordChange
+  ) {
+    navigate(getDashboardRoute(), { replace: true });
+  }
+}, [
+  isLoading,
+  user,
+  roles,
+  pendingSecurityCheck,
+  show2FA,
+  showForcePasswordChange,
+  getDashboardRoute,
+  navigate,
+]);
+
 
   const checkUserSecurityStatus = async (userId: string) => {
     const { data: settings } = await supabase

@@ -84,13 +84,20 @@ const handler = async (req: Request): Promise<Response> => {
     let emailsFailed = 0;
 
     for (const userSettings of usersToNotify || []) {
-      const profile = (userSettings as any).profiles;
-      if (!profile?.email) continue;
+
+const profile = userSettings.profiles as unknown as {
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+} | null;
+
+if (!profile?.email) continue;
+
 
       const passwordChangedAt = new Date(userSettings.password_changed_at!);
       const expiresAt = new Date(passwordChangedAt);
       expiresAt.setDate(expiresAt.getDate() + 30);
-      
+
       const daysRemaining = Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 
       if (daysRemaining <= 0 || daysRemaining > 7) continue;
@@ -118,14 +125,14 @@ const handler = async (req: Request): Promise<Response> => {
             <div class="content">
               <p>Bonjour <strong>${profile.first_name} ${profile.last_name}</strong>,</p>
               <p>Conformément à notre politique de sécurité, votre mot de passe doit être changé tous les 30 jours.</p>
-              
+
               <div class="days-box">
                 <p class="days">${daysRemaining}</p>
                 <p style="color: #666;">jour${daysRemaining > 1 ? "s" : ""} restant${daysRemaining > 1 ? "s" : ""}</p>
               </div>
-              
+
               <p>Veuillez vous connecter à votre compte et changer votre mot de passe avant expiration pour éviter tout blocage de compte.</p>
-              
+
               <center>
                 <a href="https://fb22e518-053a-432e-b31a-b0ccfc0f8fff.lovableproject.com/login" class="button">Changer mon mot de passe →</a>
               </center>
@@ -167,13 +174,24 @@ const handler = async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in send-password-expiry-reminder:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in send-password-expiry-reminder:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur s'est produite",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 };
 
 serve(handler);

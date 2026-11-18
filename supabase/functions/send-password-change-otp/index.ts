@@ -28,7 +28,7 @@ async function sendEmailViaGmail(to: string, subject: string, htmlContent: strin
   try {
     // Build raw email with proper MIME structure
     const boundary = "----=_Part_" + Math.random().toString(36).substring(2);
-    
+
     const rawEmail = [
       `From: CNAM <${GMAIL_USER}>`,
       `To: ${to}`,
@@ -53,7 +53,7 @@ async function sendEmailViaGmail(to: string, subject: string, htmlContent: strin
 
     // Use Gmail API via SMTP with raw email
     const credentials = base64Encode(`${GMAIL_USER}:${GMAIL_APP_PASSWORD}`);
-    
+
     // Connect to Gmail SMTP
     const conn = await Deno.connectTls({
       hostname: "smtp.gmail.com",
@@ -86,7 +86,7 @@ async function sendEmailViaGmail(to: string, subject: string, htmlContent: strin
     await conn.write(encoder.encode(rawEmail + "\r\n.\r\n"));
     await readResponse();
     await sendCommand("QUIT");
-    
+
     conn.close();
     console.log(`OTP email sent successfully to ${to.substring(0, 3)}***`);
     return true;
@@ -182,7 +182,7 @@ const handler = async (req: Request): Promise<Response> => {
             <tr>
               <td align="center">
                 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);">
-                  
+
                   <!-- Header -->
                   <tr>
                     <td style="background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 50%, #1e3a5f 100%); padding: 40px 30px; text-align: center;">
@@ -207,7 +207,7 @@ const handler = async (req: Request): Promise<Response> => {
                         Bonjour <strong>${firstName}</strong>,
                       </p>
                       <p style="color: #4a5568; font-size: 15px; line-height: 1.7; margin: 0 0 30px 0;">
-                        Vous avez demandé à modifier votre mot de passe sur la plateforme <strong>CNAM</strong>. 
+                        Vous avez demandé à modifier votre mot de passe sur la plateforme <strong>CNAM</strong>.
                         Utilisez le code ci-dessous pour confirmer votre identité et finaliser le changement.
                       </p>
 
@@ -337,13 +337,24 @@ const handler = async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in send-password-change-otp:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in send-password-change-otp:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur s'est produite",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 };
 
 serve(handler);

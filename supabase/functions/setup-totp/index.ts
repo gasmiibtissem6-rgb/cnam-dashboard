@@ -43,7 +43,7 @@ serve(async (req: Request): Promise<Response> => {
 
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    
+
     if (claimsError || !claimsData?.claims) {
       return new Response(
         JSON.stringify({ error: "Token invalide" }),
@@ -131,8 +131,8 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         secret: secret,
         totp_uri: totpUri,
         email: userEmail,
@@ -141,11 +141,22 @@ serve(async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in setup-totp:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in setup-totp:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur interne s'est produite lors de la configuration TOTP.",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 });

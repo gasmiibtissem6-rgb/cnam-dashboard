@@ -19,6 +19,44 @@ type InternalAccountType = "admin" | "it_engineer";
 
 const REQUIRED_DOMAIN = "@esprim.tn";
 
+function getFunctionErrorMessage(error: unknown): string {
+  const fallback = "Erreur lors de l'envoi du code";
+
+  if (!error || typeof error !== "object") {
+    return fallback;
+  }
+
+  const functionError = error as {
+    message?: unknown;
+    context?: {
+      body?: unknown;
+    };
+  };
+
+  const body = functionError.context?.body;
+
+  if (body && typeof body === "object") {
+    const response = body as {
+      error?: unknown;
+      message?: unknown;
+    };
+
+    if (typeof response.error === "string") {
+      return response.error;
+    }
+
+    if (typeof response.message === "string") {
+      return response.message;
+    }
+  }
+
+  if (typeof functionError.message === "string") {
+    return functionError.message;
+  }
+
+  return fallback;
+}
+
 export default function RegisterInternalPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("form");
@@ -93,8 +131,8 @@ export default function RegisterInternalPage() {
       });
 
       if (error) {
-        const errAny = error as any;
-        const serverMsg = errAny?.context?.body?.error || errAny?.context?.body?.message || errAny?.message || "Erreur lors de l'envoi du code";
+        const serverMsg = getFunctionErrorMessage(error);
+
         const isApproved = typeof serverMsg === "string" && serverMsg.includes("déjà été approuvé");
         toast({ variant: "destructive", title: "Impossible d'envoyer le code", description: serverMsg });
         if (isApproved) setTimeout(() => navigate("/login"), 0);
@@ -166,8 +204,12 @@ export default function RegisterInternalPage() {
         },
       });
       if (error || data?.error) {
-        const msg = data?.error || (error as any)?.context?.body?.error || error?.message || "Erreur";
-        throw new Error(msg);
+        const msg =
+  typeof data?.error === "string"
+    ? data.error
+    : getFunctionErrorMessage(error);
+
+throw new Error(msg);
       }
       setOtpCode("");
       toast({ title: "Code renvoyé", description: "Un nouveau code a été envoyé à votre email institutionnel." });
