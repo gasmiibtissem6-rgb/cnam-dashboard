@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import React from "react";
@@ -97,51 +97,166 @@ const FAKE_REIMBURSEMENTS = [
     insured_member: { first_name: "Walid", last_name: "Ferjani", insurance_number: "CNAM-1678901" },
   },
 ];
+type Reimbursement = {
+  id: string;
+  reference_number: string;
+  service_type: string;
+  amount_requested: number;
+  amount_approved: number | null;
+  status: string;
+  created_at: string;
+  submission_date: string;
+  description: string | null;
+  insured_member: {
+    first_name: string;
+    last_name: string;
+    insurance_number: string;
+  } | null;
+  rejection_reason?: string | null;
+};
 
+type ProviderInfo = {
+  id: string;
+  name: string;
+  provider_code: string;
+  type: string;
+  specialty: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  status: string;
+  approval_date: string | null;
+  invoices_processed?: number;
+  error_rate?: number;
+  created_at: string;
+  updated_at: string;
+};
 export function usePrestataireDashboardData() {
-  const [reimbursements, setReimbursements] = useState<any[]>(FAKE_REIMBURSEMENTS);
-  const [providerInfo, setProviderInfo] = useState<any>(FAKE_PROVIDER);
+  const [reimbursements, setReimbursements] =
+    useState<Reimbursement[]>(FAKE_REIMBURSEMENTS);
+
+  const [providerInfo, setProviderInfo] =
+    useState<ProviderInfo>(FAKE_PROVIDER);
+
   const [loading, setLoading] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
+
     try {
       const [reimbRes, providerRes] = await Promise.all([
-        supabase.from("reimbursements").select("*, insured_member:insured_members(first_name, last_name, insurance_number)").order("created_at", { ascending: false }).limit(50),
-        supabase.from("health_providers").select("*").limit(1),
+        supabase
+          .from("reimbursements")
+          .select(
+            "*, insured_member:insured_members(first_name, last_name, insurance_number)"
+          )
+          .order("created_at", { ascending: false })
+          .limit(50),
+
+        supabase
+          .from("health_providers")
+          .select("*")
+          .limit(1),
       ]);
-      // Use real data if available, otherwise keep fake data
+
+      if (reimbRes.error) throw reimbRes.error;
+      if (providerRes.error) throw providerRes.error;
+
       if (reimbRes.data && reimbRes.data.length > 0) {
         setReimbursements(reimbRes.data);
       }
+
       if (providerRes.data && providerRes.data.length > 0) {
         setProviderInfo(providerRes.data[0]);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (error: unknown) {
+      console.error(
+        "Erreur lors du chargement du dashboard prestataire :",
+        error
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "approved": return React.createElement(Badge, { className: "bg-success/10 text-success border-success/30" }, "Approuvé");
-      case "rejected": return React.createElement(Badge, { className: "bg-destructive/10 text-destructive border-destructive/30" }, "Rejeté");
-      case "processing": return React.createElement(Badge, { className: "bg-info/10 text-info border-info/30" }, "En traitement");
-      default: return React.createElement(Badge, { className: "bg-warning/10 text-warning border-warning/30" }, "En attente");
+      case "approved":
+        return React.createElement(
+          Badge,
+          {
+            className:
+              "bg-success/10 text-success border-success/30",
+          },
+          "Approuvé"
+        );
+
+      case "rejected":
+        return React.createElement(
+          Badge,
+          {
+            className:
+              "bg-destructive/10 text-destructive border-destructive/30",
+          },
+          "Rejeté"
+        );
+
+      case "processing":
+        return React.createElement(
+          Badge,
+          {
+            className:
+              "bg-info/10 text-info border-info/30",
+          },
+          "En traitement"
+        );
+
+      default:
+        return React.createElement(
+          Badge,
+          {
+            className:
+              "bg-warning/10 text-warning border-warning/30",
+          },
+          "En attente"
+        );
     }
   };
 
   const stats = {
     total: reimbursements.length,
-    pending: reimbursements.filter(r => r.status === "pending").length,
-    approved: reimbursements.filter(r => r.status === "approved").length,
-    totalAmount: reimbursements.reduce((s, r) => s + Number(r.amount_requested || 0), 0),
-    approvedAmount: reimbursements.filter(r => r.status === "approved").reduce((s, r) => s + Number(r.amount_approved || 0), 0),
+
+    pending: reimbursements.filter(
+      (r) => r.status === "pending"
+    ).length,
+
+    approved: reimbursements.filter(
+      (r) => r.status === "approved"
+    ).length,
+
+    totalAmount: reimbursements.reduce(
+      (sum, r) => sum + Number(r.amount_requested || 0),
+      0
+    ),
+
+    approvedAmount: reimbursements
+      .filter((r) => r.status === "approved")
+      .reduce(
+        (sum, r) => sum + Number(r.amount_approved || 0),
+        0
+      ),
   };
 
-  return { reimbursements, providerInfo, loading, stats, getStatusBadge, fetchData };
+  return {
+    reimbursements,
+    providerInfo,
+    loading,
+    stats,
+    getStatusBadge,
+    fetchData,
+  };
 }

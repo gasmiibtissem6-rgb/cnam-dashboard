@@ -1,11 +1,23 @@
+
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+function respond(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+}
 
 interface UpdateUserRequest {
   userId: string;
@@ -16,114 +28,169 @@ interface UpdateUserRequest {
   avatarUrl?: string | null;
 }
 
-const handler = async (req: Request): Promise<Response> => {
+serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  if (req.method !== "POST") {
+    return respond({ error: "Méthode non autorisée" }, 405);
+  }
+
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Non autorisé" }),
-        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return respond({ error: "Non autorisé" }, 401);
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const token = authHeader.slice(7).trim();
 
-    // Verify the requesting user
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    const { data: { user: requestingUser }, error: authError } = await userClient.auth.getUser();
-    if (authError || !requestingUser) {
-      return new Response(
-        JSON.stringify({ error: "Non autorisé" }),
-        { status: 401, headers: { "Content-Type": "application/json", ...corsHeaders } }
-      );
+    if (!supabaseUrl || !anonKey || !serviceKey) {
+      console.error("Missing Supabase environment variables");
+      return respond({ error: "Configuration serveur invalide" }, 500);
     }
 
-    // Check if admin
-    const { data: roles } = await userClient
+    const authClient = createClient(supabaseUrl, anonKey);
+
+    const {
+      data: { user },
+      error: authError,
+    } = await authClient.auth.getUser(token);
+
+    if (authError || !user) {
+      return respond({ error: "Session invalide" }, 401);
+    }
+
+    const adminClient = createClient(supabaseUrl, serviceKey);
+
+    const { data: roles, error: rolesError } = await adminClient
       .from("user_roles")
       .select("role")
-      .eq("user_id", requestingUser.id);
+      .eq("user_id", user.id);
 
-    const isAdmin = roles?.some((r) => r.role === "admin");
+    if (rolesError) {
+      console.error("Role verification failed:", rolesError);
+      return respond({ error: "Vérification des droits impossible" }, 500);
+    }
 
-    const { userId, firstName, lastName, email, phone, avatarUrl }: UpdateUserRequest = await req.json();
+    const isAdmin = roles?.some((r) => r.role === "admin") ?? false;
 
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "userId est requis" }),
-        { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    let body: UpdateUserRequest;
+
+    try {
+      body = await req.json();
+    } catch {
+      return respond({ error: "JSON invalide" }, 400);
+    }
+
+    if (
+      !body ||
+      typeof body.userId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.userId)
+    ) {
+      return respond({ error: "userId invalide" }, 400);
+    }
+
+    const { userId, firstName, lastName, email, phone, avatarUrl } = body;
+
+    if (!isAdmin && user.id !== userId) {
+      return respond(
+        { error: "Vous ne pouvez modifier que votre propre profil" },
+        403
       );
     }
 
-    // Users can only update themselves unless they're admin
-    if (!isAdmin && requestingUser.id !== userId) {
-      return new Response(
-        JSON.stringify({ error: "Vous ne pouvez modifier que votre propre profil" }),
-        { status: 403, headers: { "Content-Type": "application/json", ...corsHeaders } }
+    // Email changes must use a separate verified workflow.
+    // This endpoint does not change email for any role.
+    if (email !== undefined) {
+      return respond(
+        {
+          error:
+            "La modification d'email doit passer par une procédure de vérification dédiée",
+        },
+        403
       );
     }
 
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
+    const profileUpdate: Record<string, string | null> = {};
 
-    // Build profile update object
-    const profileUpdate: Record<string, any> = {};
-    if (firstName !== undefined) profileUpdate.first_name = firstName.trim();
-    if (lastName !== undefined) profileUpdate.last_name = lastName.trim();
-    if (email !== undefined) profileUpdate.email = email.trim().toLowerCase();
-    if (phone !== undefined) profileUpdate.phone = phone.trim() || null;
-    if (avatarUrl !== undefined) profileUpdate.avatar_url = avatarUrl;
-
-    if (Object.keys(profileUpdate).length > 0) {
-      const { error: profileError } = await adminClient
-        .from("profiles")
-        .update(profileUpdate)
-        .eq("user_id", userId);
-
-      if (profileError) {
-        console.error("Profile update error:", profileError);
-        return new Response(
-          JSON.stringify({ error: "Impossible de mettre à jour le profil" }),
-          { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-        );
+    if (firstName !== undefined) {
+      if (typeof firstName !== "string" || firstName.trim().length > 100) {
+        return respond({ error: "Prénom invalide" }, 400);
       }
+      profileUpdate.first_name = firstName.trim();
     }
 
-    // If email changed, update auth.users as well (admin only)
-    if (email && isAdmin) {
-      const { error: authUpdateError } = await adminClient.auth.admin.updateUserById(
-        userId,
-        { email: email.trim().toLowerCase() }
-      );
-
-      if (authUpdateError) {
-        console.error("Auth email update error:", authUpdateError);
-        // Don't fail the whole operation, just log it
+    if (lastName !== undefined) {
+      if (typeof lastName !== "string" || lastName.trim().length > 100) {
+        return respond({ error: "Nom invalide" }, 400);
       }
+      profileUpdate.last_name = lastName.trim();
     }
 
-    console.log(`User ${userId} updated successfully by ${requestingUser.id}`);
+    if (phone !== undefined) {
+      if (
+        typeof phone !== "string" ||
+        phone.length > 30 ||
+        !/^[+0-9()\s.-]*$/.test(phone)
+      ) {
+        return respond({ error: "Téléphone invalide" }, 400);
+      }
+      profileUpdate.phone = phone.trim() || null;
+    }
 
-    return new Response(
-      JSON.stringify({ success: true }),
-      { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+    if (avatarUrl !== undefined) {
+      if (
+        avatarUrl !== null &&
+        (typeof avatarUrl !== "string" || avatarUrl.length > 2048)
+      ) {
+        return respond({ error: "Avatar invalide" }, 400);
+      }
 
-  } catch (error: any) {
-    console.error("Error in update-user function:", error);
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite" }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
+      if (typeof avatarUrl === "string" && avatarUrl.length > 0) {
+        try {
+          const parsed = new URL(avatarUrl);
+          if (parsed.protocol !== "https:") {
+            return respond({ error: "URL avatar non sécurisée" }, 400);
+          }
+        } catch {
+          return respond({ error: "URL avatar invalide" }, 400);
+        }
+      }
+
+      profileUpdate.avatar_url = avatarUrl || null;
+    }
+
+    if (Object.keys(profileUpdate).length === 0) {
+      return respond({ error: "Aucune modification fournie" }, 400);
+    }
+
+    const { data: updatedProfiles, error: updateError } = await adminClient
+      .from("profiles")
+      .update(profileUpdate)
+      .eq("user_id", userId)
+      .select("user_id");
+
+    if (updateError) {
+      console.error("Profile update failed:", updateError);
+      return respond({ error: "Modification impossible" }, 500);
+    }
+
+    if (!updatedProfiles?.length) {
+      return respond({ error: "Profil introuvable" }, 404);
+    }
+
+    return respond({
+      success: true,
+      message: "Profil mis à jour avec succès",
+    });
+  } catch (error) {
+    console.error("Unexpected update-user error:", error);
+    return respond({ error: "Erreur interne du serveur" }, 500);
   }
-};
-
-serve(handler);
+});

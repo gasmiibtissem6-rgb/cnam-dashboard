@@ -14,7 +14,7 @@ interface SecurityAlertRequest {
   severity: string;
   user_id?: string;
   user_email?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   ip_address?: string;
   location?: string;
 }
@@ -27,45 +27,45 @@ const severityColors: Record<string, { bg: string; text: string; label: string }
 };
 
 const eventTypeLabels: Record<string, { icon: string; label: string; description: string }> = {
-  login_failure: { 
-    icon: "🔒", 
-    label: "Échec de connexion", 
-    description: "Une tentative de connexion a échoué" 
+  login_failure: {
+    icon: "🔒",
+    label: "Échec de connexion",
+    description: "Une tentative de connexion a échoué"
   },
-  login_success: { 
-    icon: "✅", 
-    label: "Connexion réussie", 
-    description: "Un utilisateur s'est connecté avec succès" 
+  login_success: {
+    icon: "✅",
+    label: "Connexion réussie",
+    description: "Un utilisateur s'est connecté avec succès"
   },
-  suspicious_activity: { 
-    icon: "⚠️", 
-    label: "Activité suspecte", 
-    description: "Une activité suspecte a été détectée" 
+  suspicious_activity: {
+    icon: "⚠️",
+    label: "Activité suspecte",
+    description: "Une activité suspecte a été détectée"
   },
-  access_denied: { 
-    icon: "🚫", 
-    label: "Accès refusé", 
-    description: "Une tentative d'accès non autorisée a été bloquée" 
+  access_denied: {
+    icon: "🚫",
+    label: "Accès refusé",
+    description: "Une tentative d'accès non autorisée a été bloquée"
   },
-  ip_blocked: { 
-    icon: "🛡️", 
-    label: "IP bloquée", 
-    description: "Une adresse IP a été bloquée" 
+  ip_blocked: {
+    icon: "🛡️",
+    label: "IP bloquée",
+    description: "Une adresse IP a été bloquée"
   },
-  mfa_disabled: { 
-    icon: "🔓", 
-    label: "2FA désactivé", 
-    description: "L'authentification à deux facteurs a été désactivée" 
+  mfa_disabled: {
+    icon: "🔓",
+    label: "2FA désactivé",
+    description: "L'authentification à deux facteurs a été désactivée"
   },
-  password_change: { 
-    icon: "🔑", 
-    label: "Mot de passe modifié", 
-    description: "Un mot de passe a été modifié" 
+  password_change: {
+    icon: "🔑",
+    label: "Mot de passe modifié",
+    description: "Un mot de passe a été modifié"
   },
-  session_expired: { 
-    icon: "⏱️", 
-    label: "Session expirée", 
-    description: "Une session a expiré" 
+  session_expired: {
+    icon: "⏱️",
+    label: "Session expirée",
+    description: "Une session a expiré"
   },
 };
 
@@ -103,7 +103,7 @@ serve(async (req: Request): Promise<Response> => {
 
     // Get admin emails and check notification preferences
     const adminIds = adminUsers.map(u => u.user_id);
-    
+
     const { data: profiles, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("user_id, email, first_name, last_name")
@@ -125,7 +125,7 @@ serve(async (req: Request): Promise<Response> => {
     );
 
     // Filter admins who have notifications enabled (default to true if not set)
-    const recipientProfiles = profiles.filter(p => 
+    const recipientProfiles = profiles.filter(p =>
       settingsMap.get(p.user_id) !== false
     );
 
@@ -136,10 +136,10 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const eventInfo = eventTypeLabels[event_type] || { 
-      icon: "🔔", 
-      label: event_type, 
-      description: "Un événement de sécurité s'est produit" 
+    const eventInfo = eventTypeLabels[event_type] || {
+      icon: "🔔",
+      label: event_type,
+      description: "Un événement de sécurité s'est produit"
     };
     const severityInfo = severityColors[severity] || severityColors.medium;
 
@@ -202,7 +202,7 @@ serve(async (req: Request): Promise<Response> => {
               </div>
               <p style="margin: 0; color: #374151;">${eventInfo.description}</p>
             </div>
-            
+
             ${detailsHtml ? `
             <div style="margin-top: 20px;">
               <h3 style="font-size: 14px; color: #374151; margin-bottom: 10px;">Détails de l'événement</h3>
@@ -211,9 +211,9 @@ serve(async (req: Request): Promise<Response> => {
               </table>
             </div>
             ` : ""}
-            
+
             <p class="timestamp">📅 ${timestamp}</p>
-            
+
             <div style="margin-top: 25px; text-align: center;">
               <a href="${Deno.env.get("SUPABASE_URL")?.replace('.supabase.co', '.lovable.app') || '#'}/securite" class="action-btn">
                 Voir le tableau de bord sécurité
@@ -250,39 +250,61 @@ serve(async (req: Request): Promise<Response> => {
         });
 
         return { email: profile.email, success: true };
-      } catch (error: any) {
-        console.error(`Error sending to ${profile.email}:`, error);
-        
-        await supabaseAdmin.from("email_logs").insert({
-          recipient_email: profile.email,
-          recipient_user_id: profile.user_id,
-          email_type: "security_alert",
-          subject: `[${severityInfo.label}] ${eventInfo.label}`,
-          status: "failed",
-          error_message: error.message,
-        });
 
-        return { email: profile.email, success: false, error: error.message };
-      }
+} catch (error: unknown) {
+  console.error(`Error sending to ${profile.email}:`, error);
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : "Erreur inconnue lors de l'envoi de l'alerte";
+
+  await supabaseAdmin.from("email_logs").insert({
+    recipient_email: profile.email,
+    recipient_user_id: profile.user_id,
+    email_type: "security_alert",
+    subject: `[${severityInfo.label}] ${eventInfo.label}`,
+    status: "failed",
+    error_message: errorMessage,
+  });
+
+  return {
+    email: profile.email,
+    success: false,
+    error: errorMessage,
+  };
+}
+
     });
 
     const results = await Promise.all(emailPromises);
     const successCount = results.filter(r => r.success).length;
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         message: `Alertes envoyées à ${successCount}/${results.length} administrateurs`,
-        results 
+        results
       }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in send-security-alert:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in send-security-alert:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur interne s'est produite lors de l'envoi des alertes.",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 });

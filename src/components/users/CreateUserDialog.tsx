@@ -33,27 +33,27 @@ function generateSecurePassword(): string {
   const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const numbers = "0123456789";
   const special = "!@#$%^&*";
-  
+
   let password = "CNAM_";
-  
+
   // Add random lowercase (4 chars)
   for (let i = 0; i < 4; i++) {
     password += lowercase[Math.floor(Math.random() * lowercase.length)];
   }
-  
+
   // Add random uppercase (3 chars)
   for (let i = 0; i < 3; i++) {
     password += uppercase[Math.floor(Math.random() * uppercase.length)];
   }
-  
+
   // Add random numbers (2 chars)
   for (let i = 0; i < 2; i++) {
     password += numbers[Math.floor(Math.random() * numbers.length)];
   }
-  
+
   // Add special char
   password += special[Math.floor(Math.random() * special.length)];
-  
+
   return password;
 }
 
@@ -167,13 +167,22 @@ export function CreateUserDialog({ open, onOpenChange, onSuccess }: CreateUserDi
 
       onSuccess();
       onOpenChange(false);
-    } catch (error: any) {
-      console.error("Error creating user:", error);
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: normalizeUserCreationError(error),
-      });
+    } catch (error: unknown) {
+  console.error("Error creating user:", error);
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "Erreur inconnue";
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description: normalizeUserCreationError(errorMessage),
+  });
+
     } finally {
       setIsSubmitting(false);
     }

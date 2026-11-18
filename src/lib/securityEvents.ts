@@ -1,27 +1,27 @@
 import { supabase } from "@/integrations/supabase/client";
 
 interface SecurityEventDetails {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export async function logSecurityEvent(
-  eventType: 
-    | "login_success" 
-    | "login_failure" 
-    | "logout" 
-    | "password_change" 
-    | "mfa_enabled" 
-    | "mfa_disabled" 
-    | "suspicious_activity" 
-    | "access_denied" 
-    | "session_expired" 
+  eventType:
+    | "login_success"
+    | "login_failure"
+    | "logout"
+    | "password_change"
+    | "mfa_enabled"
+    | "mfa_disabled"
+    | "suspicious_activity"
+    | "access_denied"
+    | "session_expired"
     | "ip_blocked",
   severity: "low" | "medium" | "high" | "critical",
   details?: SecurityEventDetails
 ) {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    
+
     const { error } = await supabase.rpc("log_security_event", {
       p_user_id: user?.id || null,
       p_event_type: eventType,

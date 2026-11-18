@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { SecurityDashboardLayout } from "@/components/layout/SecurityDashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,11 +24,22 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 
+type SecurityEvent =
+  Database["public"]["Tables"]["security_events"]["Row"];
+
+type Threat =
+  Database["public"]["Tables"]["threats"]["Row"];
+
+type AuditLog =
+  Database["public"]["Tables"]["audit_logs"]["Row"];
+
 export default function SecurityDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
-  const [securityEvents, setSecurityEvents] = useState<any[]>([]);
-  const [threats, setThreats] = useState<any[]>([]);
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+
+const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
+const [threats, setThreats] = useState<Threat[]>([]);
+const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");

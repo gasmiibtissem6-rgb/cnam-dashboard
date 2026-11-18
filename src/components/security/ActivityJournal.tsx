@@ -55,26 +55,43 @@ export function ActivityJournal() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
-    loadHistory();
-  }, [user]);
+  if (!user?.id) {
+    setEntries([]);
+    setIsLoading(false);
+    return;
+  }
+
+  const userId = user.id;
+  let cancelled = false;
 
   const loadHistory = async () => {
     setIsLoading(true);
+
     const { data, error } = await supabase
       .from("user_login_history")
       .select("*")
-      .eq("user_id", user!.id)
+      .eq("user_id", userId)
       .order("login_at", { ascending: false })
       .limit(50);
 
+    if (cancelled) return;
+
     if (error) {
       console.error("Error loading login history:", error);
+      setEntries([]);
     } else {
       setEntries(data || []);
     }
+
     setIsLoading(false);
   };
+
+  void loadHistory();
+
+  return () => {
+    cancelled = true;
+  };
+}, [user?.id]);
 
   return (
     <Card>
@@ -105,8 +122,8 @@ export function ActivityJournal() {
                   className="flex items-start gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                 >
                   <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                    entry.status === "success" 
-                      ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" 
+                    entry.status === "success"
+                      ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400"
                       : "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
                   }`}>
                     {entry.status === "success" ? (

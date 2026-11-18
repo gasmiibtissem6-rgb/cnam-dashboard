@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+
+import { useState, useRef, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Camera, Loader2, X } from "lucide-react";
@@ -23,9 +24,34 @@ export function AvatarUpload({
   size = "md",
 }: AvatarUploadProps) {
   const [isUploading, setIsUploading] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(currentAvatarUrl || null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(
+    currentAvatarUrl || null
+  );
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const localPreviewRef = useRef<string | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!localPreviewRef.current) {
+      setPreviewUrl(currentAvatarUrl || null);
+    }
+  }, [currentAvatarUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewRef.current) {
+        URL.revokeObjectURL(localPreviewRef.current);
+      }
+    };
+  }, []);
+
+  const clearLocalPreview = () => {
+    if (localPreviewRef.current) {
+      URL.revokeObjectURL(localPreviewRef.current);
+      localPreviewRef.current = null;
+    }
+  };
 
   const sizeClasses = {
     sm: "h-16 w-16",
@@ -33,80 +59,150 @@ export function AvatarUpload({
     lg: "h-32 w-32",
   };
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const getAvatarPath = (url: string): string | null => {
+    try {
+      const parsedUrl = new URL(url);
+      const marker = "/avatars/";
+      const markerIndex = parsedUrl.pathname.indexOf(marker);
+
+      if (markerIndex === -1) {
+        return null;
+      }
+
+      return decodeURIComponent(
+        parsedUrl.pathname.substring(markerIndex + marker.length)
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  const handleFileSelect = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0];
+
     if (!file) return;
 
-    // Validate file type
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/gif",
+    ];
+
     if (!allowedTypes.includes(file.type)) {
       toast({
         variant: "destructive",
         title: "Type de fichier non autorisé",
-        description: "Veuillez sélectionner une image (JPEG, PNG, WebP, GIF).",
+        description:
+          "Veuillez sélectionner une image (JPEG, PNG, WebP, GIF).",
       });
+
+      event.target.value = "";
       return;
     }
 
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
+    const maxFileSize = 5 * 1024 * 1024;
+
+    if (file.size > maxFileSize) {
       toast({
         variant: "destructive",
         title: "Fichier trop volumineux",
         description: "La taille maximale est de 5 Mo.",
       });
+
+      event.target.value = "";
       return;
     }
 
     setIsUploading(true);
 
     try {
-      // Create local preview
+      // Créer un aperçu local
+      clearLocalPreview();
+
       const localPreview = URL.createObjectURL(file);
+      localPreviewRef.current = localPreview;
       setPreviewUrl(localPreview);
 
-      // Delete old avatar if exists
-      if (currentAvatarUrl) {
-        const oldPath = currentAvatarUrl.split("/avatars/")[1];
-        if (oldPath) {
-          await supabase.storage.from("avatars").remove([oldPath]);
-        }
-      }
+      // Déterminer l'extension depuis le type MIME validé
+      const extensions: Record<string, string> = {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "image/gif": "gif",
+      };
 
-      // Upload new avatar
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${userId}/${Date.now()}.${fileExt}`;
+      const fileExt = extensions[file.type];
+      const fileName = `${userId}/${crypto.randomUUID()}.${fileExt}`;
 
+      // Envoyer la nouvelle photo
       const { error: uploadError } = await supabase.storage
         .from("avatars")
         .upload(fileName, file, {
           cacheControl: "3600",
-          upsert: true,
+          upsert: false,
         });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        throw uploadError;
+      }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
+      // Récupérer l'URL publique
+      const {
+        data: { publicUrl },
+      } = supabase.storage
         .from("avatars")
         .getPublicUrl(fileName);
 
+      // Informer le composant parent
       onAvatarChange(publicUrl);
+
+      // Mettre à jour l'aperçu
+      clearLocalPreview();
+      setPreviewUrl(publicUrl);
+
+      // Supprimer l'ancienne photo après le nouvel upload
+      if (currentAvatarUrl) {
+        const oldPath = getAvatarPath(currentAvatarUrl);
+
+        if (oldPath && oldPath !== fileName) {
+          const { error: removeError } = await supabase.storage
+            .from("avatars")
+            .remove([oldPath]);
+
+          if (removeError) {
+            console.warn(
+              "Impossible de supprimer l'ancien avatar :",
+              removeError
+            );
+          }
+        }
+      }
 
       toast({
         title: "Photo mise à jour",
-        description: "Votre photo de profil a été mise à jour avec succès.",
+        description:
+          "Votre photo de profil a été mise à jour avec succès.",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Upload error:", error);
+
+      clearLocalPreview();
       setPreviewUrl(currentAvatarUrl || null);
+
       toast({
         variant: "destructive",
         title: "Erreur d'upload",
-        description: error.message || "Impossible de télécharger l'image.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Impossible de télécharger l'image.",
       });
     } finally {
       setIsUploading(false);
+
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
@@ -117,12 +213,21 @@ export function AvatarUpload({
     if (!currentAvatarUrl) return;
 
     setIsUploading(true);
+
     try {
-      const oldPath = currentAvatarUrl.split("/avatars/")[1];
+      const oldPath = getAvatarPath(currentAvatarUrl);
+
       if (oldPath) {
-        await supabase.storage.from("avatars").remove([oldPath]);
+        const { error: removeError } = await supabase.storage
+          .from("avatars")
+          .remove([oldPath]);
+
+        if (removeError) {
+          throw removeError;
+        }
       }
-      
+
+      clearLocalPreview();
       setPreviewUrl(null);
       onAvatarChange(null);
 
@@ -130,7 +235,9 @@ export function AvatarUpload({
         title: "Photo supprimée",
         description: "Votre photo de profil a été supprimée.",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
+      console.error("Delete avatar error:", error);
+
       toast({
         variant: "destructive",
         title: "Erreur",
@@ -141,18 +248,23 @@ export function AvatarUpload({
     }
   };
 
-  const initials = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  const initials =
+    `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
 
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="relative">
         <Avatar className={sizeClasses[size]}>
-          <AvatarImage src={previewUrl || undefined} alt={`${firstName} ${lastName}`} />
+          <AvatarImage
+            src={previewUrl || undefined}
+            alt={`${firstName} ${lastName}`}
+          />
+
           <AvatarFallback className="text-lg font-medium bg-primary/10 text-primary">
             {initials}
           </AvatarFallback>
         </Avatar>
-        
+
         {isUploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 rounded-full">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -179,7 +291,7 @@ export function AvatarUpload({
           <Camera className="h-4 w-4 mr-2" />
           {previewUrl ? "Changer" : "Ajouter"}
         </Button>
-        
+
         {previewUrl && (
           <Button
             type="button"

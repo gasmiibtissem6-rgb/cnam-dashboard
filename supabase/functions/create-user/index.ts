@@ -48,14 +48,14 @@ function validatePassword(password: string): { valid: boolean; error?: string } 
   const hasUpperCase = /[A-Z]/.test(password);
   const hasLowerCase = /[a-z]/.test(password);
   const hasNumbers = /\d/.test(password);
-  const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'/`~]/.test(password);
+  const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>_\-+=[\]\\;'/`~]/.test(password);
 
   const complexityCount = [hasUpperCase, hasLowerCase, hasNumbers, hasSpecialChar].filter(Boolean).length;
 
   if (complexityCount < 3) {
-    return { 
-      valid: false, 
-      error: "Le mot de passe doit contenir au moins 3 des éléments suivants: majuscules, minuscules, chiffres, caractères spéciaux." 
+    return {
+      valid: false,
+      error: "Le mot de passe doit contenir au moins 3 des éléments suivants: majuscules, minuscules, chiffres, caractères spéciaux."
     };
   }
 
@@ -119,24 +119,24 @@ serve(async (req: Request): Promise<Response> => {
         p_user_id: requestingUser.id,
         p_event_type: "suspicious_activity",
         p_severity: "medium",
-        p_details: { 
-          reason: "rate_limit_exceeded", 
+        p_details: {
+          reason: "rate_limit_exceeded",
           endpoint: "create-user",
-          retry_after: rateLimitResult.retryAfter 
+          retry_after: rateLimitResult.retryAfter
         },
       });
 
       return new Response(
-        JSON.stringify({ 
-          error: `Trop de requêtes. Veuillez réessayer dans ${rateLimitResult.retryAfter} secondes.` 
+        JSON.stringify({
+          error: `Trop de requêtes. Veuillez réessayer dans ${rateLimitResult.retryAfter} secondes.`
         }),
-        { 
-          status: 429, 
-          headers: { 
-            "Content-Type": "application/json", 
+        {
+          status: 429,
+          headers: {
+            "Content-Type": "application/json",
             "Retry-After": String(rateLimitResult.retryAfter),
-            ...corsHeaders 
-          } 
+            ...corsHeaders
+          }
         }
       );
     }
@@ -155,7 +155,7 @@ serve(async (req: Request): Promise<Response> => {
     // Only admin_superieur can create admin, admin_superieur, and security_engineer roles
     const privilegedRoles = ["admin", "admin_superieur", "security_engineer"];
     const requestsPrivilegedRole = newUserRoles?.some(r => privilegedRoles.includes(r));
-    
+
     if (requestsPrivilegedRole && !isAdminSuperieur) {
       return new Response(
         JSON.stringify({ error: "Seul l'Admin Supérieur peut attribuer des rôles privilégiés (admin, admin supérieur, ingénieur sécurité)." }),
@@ -188,7 +188,7 @@ serve(async (req: Request): Promise<Response> => {
 
     if (createError) {
       console.error("Error creating user:", createError);
-      
+
       // Provide specific error for duplicate email (safe to expose to admins)
       if (createError.message?.includes("already been registered") || createError.code === "email_exists") {
         return new Response(
@@ -196,7 +196,7 @@ serve(async (req: Request): Promise<Response> => {
           { status: 400, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
-      
+
       // Return generic error for other cases
       return new Response(
         JSON.stringify({ error: "Impossible de créer l'utilisateur. Veuillez réessayer." }),
@@ -231,22 +231,33 @@ serve(async (req: Request): Promise<Response> => {
     console.log("User created successfully:", newUser.user?.email);
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        user: { 
-          id: newUser.user?.id, 
-          email: newUser.user?.email 
-        } 
+      JSON.stringify({
+        success: true,
+        user: {
+          id: newUser.user?.id,
+          email: newUser.user?.email
+        }
       }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in create-user function:", error);
-    // Return generic error to prevent information leakage
-    return new Response(
-      JSON.stringify({ error: "Une erreur s'est produite. Veuillez réessayer." }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in create-user function:", error);
+
+  // Return generic error to prevent information leakage
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur s'est produite. Veuillez réessayer.",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 });

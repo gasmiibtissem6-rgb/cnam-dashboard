@@ -13,8 +13,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+import type { Database } from "@/integrations/supabase/types";
+
+type MemberRecord = Database["public"]["Tables"]["insured_members"]["Row"];
+
 interface Props {
-  memberRecord: any;
+  memberRecord: MemberRecord | null;
   getStatusBadge: (status: string) => React.ReactNode;
   onRefresh: () => void;
 }
@@ -47,8 +51,18 @@ export function UserProfileTab({ memberRecord, getStatusBadge, onRefresh }: Prop
       toast({ title: "Profil mis à jour", description: "Vos informations ont été enregistrées." });
       setEditing(false);
       onRefresh();
-    } catch (err: any) {
-      toast({ variant: "destructive", title: "Erreur", description: err.message });
+    } catch (err: unknown) {
+  console.error("Profile update error:", err);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description:
+      err instanceof Error
+        ? err.message
+        : "Impossible de mettre à jour le profil.",
+  });
+
     } finally {
       setSaving(false);
     }

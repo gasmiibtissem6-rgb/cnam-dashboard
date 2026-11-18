@@ -28,7 +28,7 @@ serve(async (req: Request): Promise<Response> => {
 
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-    
+
     if (claimsError || !claimsData?.claims) {
       return new Response(
         JSON.stringify({ error: "Token invalide" }),
@@ -55,11 +55,11 @@ serve(async (req: Request): Promise<Response> => {
 
     const isEnrolled = settings?.mfa_secret && settings?.mfa_status === "enabled";
     const isPending = settings?.mfa_secret && settings?.mfa_status === "pending";
-    
+
     // Always require verification on every login for all users
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         requires_2fa: true,
         enrolled: isEnrolled,
         pending: isPending,
@@ -69,11 +69,25 @@ serve(async (req: Request): Promise<Response> => {
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
 
-  } catch (error: any) {
-    console.error("Error in check-totp-status:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in check-totp-status:", error);
+
+  const errorMessage =
+    error instanceof Error
+      ? error.message
+      : "Une erreur interne s'est produite";
+
+  return new Response(
+    JSON.stringify({ error: errorMessage }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 });

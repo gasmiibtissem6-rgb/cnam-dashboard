@@ -180,11 +180,22 @@ serve(async (req: Request): Promise<Response> => {
       JSON.stringify({ blocked: false, success: true }),
       { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
     );
-  } catch (error: any) {
-    console.error("Error in security-login:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
-    );
-  }
+
+} catch (error: unknown) {
+  console.error("Error in security-login:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur interne s'est produite.",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 });

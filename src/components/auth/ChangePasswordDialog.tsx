@@ -70,7 +70,7 @@ export function ChangePasswordDialog({
 
       const enrolled = data?.enrolled === true;
       setHasTOTP(enrolled);
-      
+
       // Auto-select TOTP if user has it enrolled
       if (enrolled) {
         setVerificationType("totp");
@@ -103,12 +103,14 @@ export function ChangePasswordDialog({
         title: "Code envoyé",
         description: `Un code de vérification a été envoyé à ${data.email}`,
       });
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message || "Impossible d'envoyer le code",
-      });
+    } catch (error: unknown) {
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description: error instanceof Error
+      ? error.message
+      : "Impossible d'envoyer le code",
+  });
     } finally {
       setIsLoading(false);
     }
@@ -176,12 +178,14 @@ export function ChangePasswordDialog({
 
       onSuccess?.();
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Erreur",
-        description: error.message || "Impossible de changer le mot de passe",
-      });
+    } catch (error: unknown) {
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description: error instanceof Error
+      ? error.message
+      : "Impossible de changer le mot de passe",
+  });
     } finally {
       setIsLoading(false);
     }

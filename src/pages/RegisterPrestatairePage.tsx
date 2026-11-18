@@ -14,6 +14,44 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 
 type Step = "form" | "verify" | "success";
 
+function getFunctionErrorMessage(error: unknown): string {
+  const fallback = "Une erreur est survenue";
+
+  if (!error || typeof error !== "object") {
+    return fallback;
+  }
+
+  const functionError = error as {
+    message?: unknown;
+    context?: {
+      body?: unknown;
+    };
+  };
+
+  const body = functionError.context?.body;
+
+  if (body && typeof body === "object") {
+    const response = body as {
+      error?: unknown;
+      message?: unknown;
+    };
+
+    if (typeof response.error === "string") {
+      return response.error;
+    }
+
+    if (typeof response.message === "string") {
+      return response.message;
+    }
+  }
+
+  if (typeof functionError.message === "string") {
+    return functionError.message;
+  }
+
+  return fallback;
+}
+
 export default function RegisterPrestatairePage() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("form");
@@ -71,13 +109,23 @@ export default function RegisterPrestatairePage() {
       const { data, error } = await supabase.functions.invoke("send-registration-otp", {
         body: { email: email.trim().toLowerCase(), first_name: firstName.trim(), last_name: lastName.trim() },
       });
-      if (error) {
-        const errAny = error as any;
-        const serverMsg = errAny?.context?.body?.error || errAny?.message || "Erreur";
-        toast({ variant: "destructive", title: "Erreur", description: serverMsg });
-        if (typeof serverMsg === "string" && serverMsg.includes("déjà été approuvé")) setTimeout(() => navigate("/login"), 0);
-        return;
-      }
+
+if (error) {
+  const serverMsg = getFunctionErrorMessage(error);
+
+  toast({
+    variant: "destructive",
+    title: "Erreur",
+    description: serverMsg,
+  });
+
+  if (serverMsg.includes("déjà été approuvé")) {
+    setTimeout(() => navigate("/login"), 0);
+  }
+
+  return;
+}
+
       if (data?.error) {
         toast({ variant: "destructive", title: "Erreur", description: data.error });
         return;
@@ -132,7 +180,16 @@ export default function RegisterPrestatairePage() {
       const { data, error } = await supabase.functions.invoke("send-registration-otp", {
         body: { email: email.trim().toLowerCase(), first_name: firstName.trim(), last_name: lastName.trim() },
       });
-      if (error || data?.error) throw new Error(data?.error || (error as any)?.message || "Erreur");
+
+if (error || data?.error) {
+  const message =
+    typeof data?.error === "string"
+      ? data.error
+      : getFunctionErrorMessage(error);
+
+  throw new Error(message);
+}
+
       setOtpCode("");
       toast({ title: "Code renvoyé" });
     } catch (error) {

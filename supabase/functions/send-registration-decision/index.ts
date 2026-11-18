@@ -133,10 +133,24 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     return new Response(JSON.stringify({ success: emailSent }), { status: emailSent ? 200 : 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
-  } catch (error: any) {
-    console.error("Error in send-registration-decision:", error);
-    return new Response(JSON.stringify({ error: error.message || "Erreur inconnue" }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
-  }
+
+} catch (error: unknown) {
+  console.error("Error in send-registration-decision:", error);
+
+  return new Response(
+    JSON.stringify({
+      error: "Une erreur interne s'est produite.",
+    }),
+    {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+        ...corsHeaders,
+      },
+    }
+  );
+}
+
 };
 
 serve(handler);
