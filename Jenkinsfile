@@ -110,10 +110,27 @@ pipeline {
         }
 
         stage('Docker Build') {
-            steps {
-                sh 'docker build -t cnam-dashboard:latest .'
-            }
+    steps {
+        withCredentials([
+            string(credentialsId: 'cnam-supabase-url', variable: 'VITE_SUPABASE_URL'),
+            string(credentialsId: 'cnam-supabase-publishable-key', variable: 'VITE_SUPABASE_PUBLISHABLE_KEY')
+        ]) {
+            sh '''
+                set +x
+
+                if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ]; then
+                    echo "ERREUR : variables Supabase manquantes"
+                    exit 1
+                fi
+
+                docker build \
+                    --build-arg VITE_SUPABASE_URL="$VITE_SUPABASE_URL" \
+                    --build-arg VITE_SUPABASE_PUBLISHABLE_KEY="$VITE_SUPABASE_PUBLISHABLE_KEY" \
+                    -t cnam-dashboard:latest .
+            '''
         }
+    }
+}
 
         stage('Security Scan - Trivy') {
             steps {

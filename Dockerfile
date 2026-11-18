@@ -1,4 +1,3 @@
-
 # Étape 1 : construire l'application React
 FROM node:22-alpine AS build
 
@@ -8,6 +7,13 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
+
+# Variables publiques Supabase pour Vite
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
 
 RUN npm run build
 
