@@ -63,6 +63,44 @@ pipeline {
             }
         }
 
+        stage('Publish Artifact to Nexus') {
+    when {
+        expression {
+            env.GIT_BRANCH == 'origin/main' ||
+            env.GIT_BRANCH == 'main' ||
+            env.BRANCH_NAME == 'main'
+        }
+    }
+
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'nexus-credentials',
+                usernameVariable: 'NEXUS_USER',
+                passwordVariable: 'NEXUS_PASSWORD'
+            )
+        ]) {
+            sh '''
+                set +x
+                set -eu
+
+                VERSION="1.0.${BUILD_NUMBER}"
+                ARTIFACT="cnam-dashboard-${VERSION}.tar.gz"
+
+                tar -czf "$ARTIFACT" -C dist .
+
+                curl --fail --show-error --silent \
+                    --retry 3 \
+                    -u "$NEXUS_USER:$NEXUS_PASSWORD" \
+                    --upload-file "$ARTIFACT" \
+                    "http://localhost:8082/repository/cnam-releases/cnam-dashboard/${VERSION}/${ARTIFACT}"
+
+                echo "Artefact CNAM publie dans Nexus : $ARTIFACT"
+            '''
+        }
+    }
+}
+
         stage('SonarQube Analysis') {
             steps {
                 script {
