@@ -56,12 +56,14 @@ stage('SonarQube Analysis') {
         script {
             def scannerHome = tool 'SonarScanner'
             withSonarQubeEnv('SonarQube-CNAM') {
-                sh "${scannerHome}/bin/sonar-scanner"
+                sh """
+                    "${scannerHome}/bin/sonar-scanner" \
+                    -Dsonar.token="\$SONAR_AUTH_TOKEN"
+                """
             }
         }
     }
 }
-
 stage('Quality Gate') {
     steps {
         timeout(time: 10, unit: 'MINUTES') {
