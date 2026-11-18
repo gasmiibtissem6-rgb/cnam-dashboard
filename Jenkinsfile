@@ -92,7 +92,8 @@ pipeline {
 
                                 export SONAR_TOKEN="$SONAR_AUTH_TOKEN"
 
-                                "$SCANNER_HOME/bin/sonar-scanner"
+"$SCANNER_HOME/bin/sonar-scanner" \
+    -Dsonar.host.url=http://localhost:9000
                             '''
                         }
                     }
