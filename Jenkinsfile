@@ -1,9 +1,7 @@
 
 pipeline {
-    agent any
-
-    tools {
-        nodejs 'NodeJS-22'
+    agent {
+        label 'docker-mac'
     }
 
     stages {
@@ -13,10 +11,11 @@ pipeline {
             }
         }
 
-        stage('Verify Node.js') {
+        stage('Verify Tools') {
             steps {
                 sh 'node --version'
                 sh 'npm --version'
+                sh 'docker --version'
             }
         }
 
@@ -49,14 +48,20 @@ pipeline {
                 sh 'npm run build'
             }
         }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t cnam-dashboard:latest .'
+            }
+        }
     }
 
     post {
         success {
-            echo 'CNAM Dashboard : pipeline CI réussie !'
+            echo 'CNAM Dashboard : pipeline CI + Docker réussie !'
         }
         failure {
-            echo 'CNAM Dashboard : pipeline CI échouée.'
+            echo 'CNAM Dashboard : pipeline CI + Docker échouée.'
         }
     }
 }
