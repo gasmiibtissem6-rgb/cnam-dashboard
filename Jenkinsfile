@@ -49,6 +49,27 @@ pipeline {
                 sh 'npm run build'
             }
         }
+        
+        
+stage('SonarQube Analysis') {
+    steps {
+        script {
+            def scannerHome = tool 'SonarScanner'
+            withSonarQubeEnv('SonarQube-CNAM') {
+                sh "${scannerHome}/bin/sonar-scanner"
+            }
+        }
+    }
+}
+
+stage('Quality Gate') {
+    steps {
+        timeout(time: 10, unit: 'MINUTES') {
+            waitForQualityGate abortPipeline: true
+        }
+    }
+}
+
 
         stage('Docker Build') {
             steps {
