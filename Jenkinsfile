@@ -16,6 +16,7 @@ pipeline {
                 sh 'node --version'
                 sh 'npm --version'
                 sh 'docker --version'
+                sh '/opt/homebrew/bin/trivy --version'
             }
         }
 
@@ -54,22 +55,20 @@ pipeline {
                 sh 'docker build -t cnam-dashboard:latest .'
             }
         }
+
+        stage('Security Scan - Trivy') {
+            steps {
+                sh '/opt/homebrew/bin/trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 cnam-dashboard:latest'
+            }
+        }
     }
 
     post {
         success {
-            echo 'CNAM Dashboard : pipeline CI + Docker réussie !'
+            echo 'CNAM Dashboard : pipeline DevSecOps réussie !'
         }
         failure {
-            echo 'CNAM Dashboard : pipeline CI + Docker échouée.'
+            echo 'CNAM Dashboard : pipeline DevSecOps échouée.'
         }
     }
-
-
-stage('Security Scan - Trivy') {
-    steps {
-        sh 'trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 cnam-dashboard:latest'
-    }
-}
-
 }
