@@ -1,10 +1,15 @@
 
 pipeline {
     agent {
-        label 'docker-mac'
+        label 'docker-agent'
+    }
+
+    options {
+        timestamps()
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -49,44 +54,59 @@ pipeline {
                 sh 'npm run build'
             }
         }
-        
-        
-stage('SonarQube Analysis') {
-    steps {
-        script {
-            def scannerHome = tool 'SonarScanner'
 
-            withSonarQubeEnv('SonarQube-CNAM') {
-                sh '''
-                    set +x
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'SonarScanner'
 
-                    if [ -n "$SONAR_AUTH_TOKEN" ]; then
-                        echo "SONAR_AUTH_TOKEN : PRESENT"
-                    else
-                        echo "SONAR_AUTH_TOKEN : ABSENT"
-                        exit 1
-                    fi
+                    withSonarQubeEnv('SonarQube-CNAM') {
 
-                    if [ -n "$SONAR_TOKEN" ]; then
-                        echo "SONAR_TOKEN : PRESENT"
-                    else
-                        echo "SONAR_TOKEN : ABSENT"
-                    fi
-                '''
+                        sh '''
+                            set +x
 
-                sh "${scannerHome}/bin/sonar-scanner"
+                            echo "Verification du token SonarQube Jenkins..."
+
+                            if [ -z "$SONAR_AUTH_TOKEN" ]; then
+                                echo "ERREUR : SONAR_AUTH_TOKEN absent"
+                                exit 1
+                            fi
+
+                            HTTP_CODE=$(curl -sS -o /dev/null -w "%{http_code}" \
+                                -u "$SONAR_AUTH_TOKEN:" \
+                                "$SONAR_HOST_URL/api/v2/analysis/version")
+
+                            echo "Authentification SonarQube : HTTP $HTTP_CODE"
+
+                            if [ "$HTTP_CODE" != "200" ]; then
+                                echo "ERREUR : authentification SonarQube refusee"
+                                exit 1
+                            fi
+
+                            echo "Authentification SonarQube OK"
+                        '''
+
+                        withEnv(["SCANNER_HOME=${scannerHome}"]) {
+                            sh '''
+                                set +x
+
+                                export SONAR_TOKEN="$SONAR_AUTH_TOKEN"
+
+                                "$SCANNER_HOME/bin/sonar-scanner"
+                            '''
+                        }
+                    }
+                }
             }
         }
-    }
-}
-stage('Quality Gate') {
-    steps {
-        timeout(time: 10, unit: 'MINUTES') {
-            waitForQualityGate abortPipeline: true
-        }
-    }
-}
 
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 10, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
 
         stage('Docker Build') {
             steps {
@@ -96,40 +116,42 @@ stage('Quality Gate') {
 
         stage('Security Scan - Trivy') {
             steps {
-                sh '/opt/homebrew/bin/trivy image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 cnam-dashboard:latest'
+                sh '''
+                    /opt/homebrew/bin/trivy image \
+                        --severity HIGH,CRITICAL \
+                        --exit-code 1 \
+                        cnam-dashboard:latest
+                '''
             }
         }
 
+        stage('Deploy Docker') {
+            steps {
+                sh '''
+                    docker rm -f cnam-dashboard-app 2>/dev/null || true
 
-stage('Deploy Docker') {
-    steps {
-        sh '''
-            set -e
-
-            docker rm -f cnam-dashboard-app 2>/dev/null || true
-
-            docker run -d \
-              --name cnam-dashboard-app \
-              --restart unless-stopped \
-              -p 127.0.0.1:3000:80 \
-              cnam-dashboard:latest
-
-            sleep 3
-
-            curl --fail --silent --show-error \
-              http://localhost:3000/ > /dev/null
-        '''
-    }
-}
-
+                    docker run -d \
+                        --name cnam-dashboard-app \
+                        -p 3000:80 \
+                        --restart unless-stopped \
+                        cnam-dashboard:latest
+                '''
+            }
+        }
     }
 
     post {
         success {
-            echo 'CNAM Dashboard : pipeline DevSecOps réussie !'
+            echo 'CNAM Dashboard : pipeline DevSecOps reussie.'
         }
+
         failure {
-            echo 'CNAM Dashboard : pipeline DevSecOps échouée.'
+            echo 'CNAM Dashboard : pipeline DevSecOps echouee.'
+        }
+
+        always {
+            echo 'Execution du pipeline terminee.'
         }
     }
 }
+
