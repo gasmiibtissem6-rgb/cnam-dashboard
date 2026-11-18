@@ -62,7 +62,7 @@ pipeline {
                 sh 'npm run build'
             }
         }
-        
+
         stage('Publish Artifact to Nexus') {
     when {
         expression {
